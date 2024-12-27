@@ -2,18 +2,19 @@ package com.example.myapplication.data.model
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import androidx.room.TypeConverters
+import com.example.myapplication.data.database.Converters
 
-@Entity(tableName = "weather")
+@Entity(tableName = "weather_data")
+@TypeConverters(Converters::class)
 data class WeatherEntity(
     @PrimaryKey
     val cityId: String,
-    val cityName: String,
     val temperature: Double,
+    val windSpeed: Double,
+    val condition: String,
     val minTemp: Double,
     val maxTemp: Double,
-    val condition: String,
-    val windSpeed: Double,
-    val timestamp: Long = System.currentTimeMillis(),
-    val hourlyTemperatures: List<Double> = emptyList(),
-    val hourlyTimes: List<String> = emptyList()
+    val hourlyTemperatures: List<Double>,
+    val hourlyTimes: List<String>
 ) 

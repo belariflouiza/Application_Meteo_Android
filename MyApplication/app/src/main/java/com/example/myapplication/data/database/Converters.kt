@@ -1,29 +1,26 @@
 package com.example.myapplication.data.database
 
 import androidx.room.TypeConverter
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 
+@androidx.room.TypeConverters
 class Converters {
     @TypeConverter
-    fun fromDoubleList(value: List<Double>): String {
-        return Gson().toJson(value)
+    fun fromString(value: String): List<String> {
+        return value.split(",")
     }
 
     @TypeConverter
-    fun toDoubleList(value: String): List<Double> {
-        val listType = object : TypeToken<List<Double>>() {}.type
-        return Gson().fromJson(value, listType)
+    fun fromList(list: List<String>): String {
+        return list.joinToString(",")
     }
 
     @TypeConverter
-    fun fromStringList(value: List<String>): String {
-        return Gson().toJson(value)
+    fun fromDoubleString(value: String): List<Double> {
+        return value.split(",").map { it.toDouble() }
     }
 
     @TypeConverter
-    fun toStringList(value: String): List<String> {
-        val listType = object : TypeToken<List<String>>() {}.type
-        return Gson().fromJson(value, listType)
+    fun fromDoubleList(list: List<Double>): String {
+        return list.joinToString(",")
     }
 } 

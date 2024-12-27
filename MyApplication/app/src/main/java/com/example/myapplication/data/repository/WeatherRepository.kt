@@ -8,6 +8,10 @@ import com.example.myapplication.data.dao.FavoriteCityDao
 import com.example.myapplication.data.dao.WeatherDao
 import com.example.myapplication.data.model.*
 import com.example.myapplication.utils.NetworkUtils
+import kotlinx.coroutines.flow.Flow
+import java.util.Calendar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class WeatherRepository(
     private val weatherApiService: WeatherApiService,
@@ -18,119 +22,107 @@ class WeatherRepository(
 ) {
     companion object {
         private const val CACHE_DURATION = 30 * 60 * 1000 // 30 minutes en millisecondes
+        private const val TAG = "WeatherRepository"
     }
 
     suspend fun searchCities(query: String): List<GeocodingResultItem> {
-        if (!NetworkUtils.isNetworkAvailable(context)) {
-            throw Exception("Pas de connexion internet")
-        }
-
-        return try {
-            val response = geocodingApiService.searchCity(query)
-            response.results
-        } catch (e: Exception) {
-            throw Exception("Erreur lors de la recherche: ${e.message}")
+        return withContext(Dispatchers.IO) {
+            try {
+                val response = geocodingApiService.searchCity(query)
+                response.results.map { result ->
+                    GeocodingResultItem(
+                        id = "${result.latitude}_${result.longitude}",
+                        name = result.name,
+                        latitude = result.latitude,
+                        longitude = result.longitude,
+                        country = result.country,
+                        admin1 = result.admin1 ?: ""
+                    )
+                }
+            } catch (e: Exception) {
+                throw Exception("Erreur lors de la recherche des villes: ${e.message}")
+            }
         }
     }
 
-    fun getFavoriteCities() = favoriteCityDao.getAllFavoriteCitiesFlow()
+    suspend fun getWeather(latitude: Double, longitude: Double): WeatherResponse {
+        return withContext(Dispatchers.IO) {
+            try {
+                weatherApiService.getWeather(
+                    latitude = latitude,
+                    longitude = longitude
+                )
+            } catch (e: Exception) {
+                throw Exception("Erreur lors de la récupération de la météo: ${e.message}")
+            }
+        }
+    }
 
-    suspend fun addFavoriteCity(city: GeocodingResultItem) {
-        val favoriteCity = FavoriteCity(
-            cityId = city.id,
-            name = city.name,
-            latitude = city.latitude,
-            longitude = city.longitude
-        )
-        favoriteCityDao.insertFavoriteCity(favoriteCity)
+    suspend fun getFavoriteCities(): List<FavoriteCity> {
+        return withContext(Dispatchers.IO) {
+            favoriteCityDao.getAllFavoriteCities()
+        }
+    }
+
+    suspend fun addFavoriteCity(favoriteCity: FavoriteCity) {
+        withContext(Dispatchers.IO) {
+            favoriteCityDao.insertFavoriteCity(favoriteCity)
+        }
     }
 
     suspend fun removeFavoriteCity(cityId: String) {
-        favoriteCityDao.deleteFavoriteCity(cityId)
+        withContext(Dispatchers.IO) {
+            favoriteCityDao.deleteFavoriteCityById(cityId)
+        }
     }
 
-    suspend fun getWeatherForCity(cityId: String, latitude: Double, longitude: Double): Result<WeatherEntity> = runCatching {
-        Log.d("WeatherRepository", "Fetching weather for city $cityId at $latitude, $longitude")
-        
-        if (!NetworkUtils.isNetworkAvailable(context)) {
-            Log.d("WeatherRepository", "No network connection")
-            val cachedWeather = weatherDao.getWeatherForCity(cityId)
-            if (cachedWeather != null) {
-                Log.d("WeatherRepository", "Returning cached weather: $cachedWeather")
-                return@runCatching cachedWeather
-            }
-            throw Exception("Pas de connexion internet et aucune donnée en cache")
-        }
-
-        try {
-            Log.d("WeatherRepository", "Making API call to Open-Meteo")
-            val response = weatherApiService.getWeather(
+    suspend fun getWeatherForCity(cityId: String, latitude: Double, longitude: Double): Result<WeatherEntity> {
+        return try {
+            val weather = weatherApiService.getWeather(
                 latitude = latitude,
                 longitude = longitude
             )
-            Log.d("WeatherRepository", "API response received: $response")
             
-            val cityName = favoriteCityDao.getFavoriteCity(cityId)?.name ?: run {
-                Log.d("WeatherRepository", "City name not found in favorites, using default")
-                "Ville inconnue"
-            }
-            
-            Log.d("WeatherRepository", "Current weather: ${response.current_weather}")
-            Log.d("WeatherRepository", "Daily weather: ${response.daily}")
-            Log.d("WeatherRepository", "Hourly weather: ${response.hourly}")
-            
-            val weather = WeatherEntity(
+            val weatherEntity = WeatherEntity(
                 cityId = cityId,
-                cityName = cityName,
-                temperature = response.current_weather.temperature,
-                minTemp = response.daily.temperature_2m_min[0],
-                maxTemp = response.daily.temperature_2m_max[0],
-                condition = getWeatherDescription(response.current_weather.weathercode),
-                windSpeed = response.current_weather.windspeed,
-                timestamp = System.currentTimeMillis(),
-                hourlyTemperatures = response.hourly.temperature_2m.take(24),
-                hourlyTimes = response.hourly.time.take(24).map { time ->
-                    time.substringAfterLast('T').substringBefore(':') + "h"
-                }
+                temperature = weather.current_weather.temperature,
+                windSpeed = weather.current_weather.windspeed,
+                condition = getWeatherCondition(weather.current_weather.weathercode),
+                minTemp = weather.daily.temperature_2m_min.firstOrNull() ?: 0.0,
+                maxTemp = weather.daily.temperature_2m_max.firstOrNull() ?: 0.0,
+                hourlyTemperatures = weather.hourly.temperature_2m,
+                hourlyTimes = weather.hourly.time.map { formatHourFromDateTime(it) }
             )
-            Log.d("WeatherRepository", "Created WeatherEntity: $weather")
+
+            // Sauvegarder en cache
+            weatherDao.insertWeather(weatherEntity)
             
-            weatherDao.insertWeather(weather)
-            Log.d("WeatherRepository", "Weather saved to database")
-            weather
+            Result.success(weatherEntity)
         } catch (e: Exception) {
-            Log.e("WeatherRepository", "Error fetching weather", e)
-            Log.e("WeatherRepository", "Error details: ${e.message}")
-            e.printStackTrace()
-            val cachedWeather = weatherDao.getWeatherForCity(cityId)
-            if (cachedWeather != null) {
-                Log.d("WeatherRepository", "Returning cached weather after error: $cachedWeather")
-                return@runCatching cachedWeather
-            }
-            throw Exception("Erreur lors de la récupération des données météo: ${e.message}")
+            Result.failure(Exception("Erreur lors de la récupération de la météo: ${e.message}"))
         }
     }
 
-    private fun isCacheExpired(timestamp: Long): Boolean {
-        val currentTime = System.currentTimeMillis()
-        val cacheAge = currentTime - timestamp
-        return cacheAge > CACHE_DURATION
-    }
-
-    private fun getWeatherDescription(code: Int): String {
+    private fun getWeatherCondition(code: Int): String {
         return when (code) {
             0 -> "Ciel dégagé"
             1, 2, 3 -> "Partiellement nuageux"
             45, 48 -> "Brouillard"
-            51, 53, 55 -> "Bruine"
-            61, 63, 65 -> "Pluie"
-            71, 73, 75 -> "Neige"
-            77 -> "Grains de neige"
+            51, 53, 55, 56, 57, 61, 63, 65, 66, 67 -> "Pluie"
+            71, 73, 75, 77 -> "Neige"
             80, 81, 82 -> "Averses"
             85, 86 -> "Averses de neige"
             95 -> "Orage"
             96, 99 -> "Orage avec grêle"
-            else -> "Conditions inconnues"
+            else -> "Indéterminé"
+        }
+    }
+
+    private fun formatHourFromDateTime(dateTime: String): String {
+        return try {
+            dateTime.split("T")[1].substring(0, 5)
+        } catch (e: Exception) {
+            "00:00"
         }
     }
 }

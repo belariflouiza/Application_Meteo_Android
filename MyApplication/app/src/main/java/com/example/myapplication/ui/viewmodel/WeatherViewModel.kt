@@ -205,18 +205,26 @@ class WeatherViewModel(
         viewModelScope.launch {
             try {
                 _isLoading.value = true
-                repository.getWeatherForCity(city.id, city.latitude, city.longitude)
-                    .onSuccess { weather ->
-                        val updatedWeatherData = _weatherData.value.toMutableMap()
-                        updatedWeatherData[city.id] = weather
-                        _weatherData.value = updatedWeatherData
-                        _selectedCity.value = city
-                    }
-                    .onFailure { e ->
-                        _error.value = "Erreur lors de la récupération de la météo: ${e.message}"
-                    }
+                getWeatherForCity(city.id, city.latitude, city.longitude)
+                _selectedCity.value = city
             } catch (e: Exception) {
                 _error.value = "Erreur lors de la sélection de la ville: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun loadWeatherDetails(cityId: String) {
+        viewModelScope.launch {
+            try {
+                _isLoading.value = true
+                val city = _selectedCity.value ?: return@launch
+                if (!_weatherData.value.containsKey(cityId)) {
+                    getWeatherForCity(cityId, city.latitude, city.longitude)
+                }
+            } catch (e: Exception) {
+                _error.value = "Erreur lors du chargement des détails: ${e.message}"
             } finally {
                 _isLoading.value = false
             }

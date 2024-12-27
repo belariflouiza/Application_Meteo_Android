@@ -32,6 +32,8 @@ import androidx.navigation.NavController
 import com.example.myapplication.data.model.WeatherEntity
 import com.example.myapplication.ui.viewmodel.WeatherViewModel
 import kotlin.math.roundToInt
+import androidx.compose.ui.platform.LocalConfiguration
+import android.content.res.Configuration
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -42,49 +44,100 @@ fun WeatherDetailScreen(
     cityId: String
 ) {
     val weatherData by viewModel.weatherData.collectAsState()
-    val selectedCity by viewModel.selectedCity.collectAsState()
-    val favorites by viewModel.favorites.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    val error by viewModel.error.collectAsState()
+    
+    LaunchedEffect(cityId) {
+        viewModel.loadWeatherDetails(cityId)
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(selectedCity?.name ?: "Détails météo") },
+                title = { Text("Détails météo") },
                 navigationIcon = {
                     IconButton(onClick = { navController.navigateUp() }) {
-                        Icon(Icons.Default.ArrowBack, "Retour")
-                    }
-                },
-                actions = {
-                    selectedCity?.let { city ->
-                        val isFavorite = favorites.any { it.cityId == city.id }
-                        IconButton(onClick = { viewModel.toggleFavorite(city) }) {
-                            Icon(
-                                if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                if (isFavorite) "Retirer des favoris" else "Ajouter aux favoris"
-                            )
-                        }
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Retour")
                     }
                 }
             )
         }
     ) { padding ->
-        selectedCity?.let { city ->
-            val cityWeather = weatherData[city.id]
-            if (cityWeather != null) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    // Température actuelle et condition
-                    CurrentWeatherCard(cityWeather)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            when {
+                isLoading -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
+                error != null -> {
+                    Text(
+                        text = error ?: "Une erreur est survenue",
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(16.dp)
+                    )
+                }
+                else -> {
+                    weatherData[cityId]?.let { weather ->
+                        val configuration = LocalConfiguration.current
+                        val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-                    // Prévisions horaires
-                    HourlyForecastCard(cityWeather)
-
-                    // Prévisions sur 7 jours
-                    DailyForecastCard(cityWeather)
+                        if (isLandscape) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 8.dp)
+                                ) {
+                                    CurrentWeatherCard(weather)
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxWidth()
+                                    ) {
+                                        HourlyForecastCard(weather)
+                                    }
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(start = 8.dp)
+                                ) {
+                                    DailyForecastCard(weather)
+                                }
+                            }
+                        } else {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp)
+                                    .verticalScroll(rememberScrollState())
+                            ) {
+                                CurrentWeatherCard(weather)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                HourlyForecastCard(
+                                    weather = weather,
+                                    modifier = Modifier.height(300.dp)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                DailyForecastCard(
+                                    weather = weather,
+                                    modifier = Modifier.height(400.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -92,69 +145,58 @@ fun WeatherDetailScreen(
 }
 
 @Composable
-fun CurrentWeatherCard(weather: WeatherEntity) {
+fun CurrentWeatherCard(
+    weather: WeatherEntity,
+    modifier: Modifier = Modifier
+) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = when (weather.condition.lowercase()) {
-                "ciel dégagé" -> Color(0xFF87CEEB) // Bleu ciel
-                "partiellement nuageux" -> Color(0xFFB0C4DE) // Bleu gris
-                "brouillard" -> Color(0xFFDCDCDC) // Gris
-                "pluie", "averses" -> Color(0xFF4682B4) // Bleu acier
-                "neige", "averses de neige" -> Color(0xFFF0F8FF) // Blanc bleuté
-                "orage" -> Color(0xFF483D8B) // Bleu foncé
-                else -> MaterialTheme.colorScheme.primaryContainer
-            }
-        )
+        modifier = modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "${weather.temperature.toInt()}°",
-                style = MaterialTheme.typography.displayLarge,
-                color = Color.White
+                text = "${weather.temperature.toInt()}°C",
+                style = MaterialTheme.typography.displayLarge
             )
             Text(
                 text = weather.condition,
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(vertical = 8.dp),
-                color = Color.White
+                modifier = Modifier.padding(vertical = 8.dp)
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                WeatherInfo(
-                    icon = Icons.Default.KeyboardArrowDown,
-                    value = "${weather.minTemp.toInt()}°",
-                    label = "Min",
-                    tint = Color.White
-                )
-                WeatherInfo(
-                    icon = Icons.Default.KeyboardArrowUp,
-                    value = "${weather.maxTemp.toInt()}°",
-                    label = "Max",
-                    tint = Color.White
-                )
-                WeatherInfo(
-                    icon = Icons.Default.Info,
-                    value = "${weather.windSpeed.toInt()} km/h",
-                    label = "Vent",
-                    tint = Color.White
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Min", style = MaterialTheme.typography.bodyMedium)
+                    Text("${weather.minTemp.toInt()}°C", style = MaterialTheme.typography.titleMedium)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Max", style = MaterialTheme.typography.bodyMedium)
+                    Text("${weather.maxTemp.toInt()}°C", style = MaterialTheme.typography.titleMedium)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Vent", style = MaterialTheme.typography.bodyMedium)
+                    Text("${weather.windSpeed.toInt()} km/h", style = MaterialTheme.typography.titleMedium)
+                }
             }
         }
     }
 }
 
 @Composable
-fun HourlyForecastCard(weather: WeatherEntity) {
-    val primaryColor = MaterialTheme.colorScheme.primary
+fun HourlyForecastCard(
+    weather: WeatherEntity,
+    modifier: Modifier = Modifier
+) {
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val scrollState = rememberScrollState()
+    val primaryColor = MaterialTheme.colorScheme.primary
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val textPaint = remember {
         android.graphics.Paint().apply {
@@ -166,146 +208,75 @@ fun HourlyForecastCard(weather: WeatherEntity) {
     }
     
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            .then(
+                if (isLandscape) {
+                    Modifier.height(300.dp)
+                } else {
+                    Modifier.height(250.dp)
+                }
+            )
     ) {
         Column(
             modifier = Modifier
+                .fillMaxSize()
                 .padding(16.dp)
-                .fillMaxWidth()
         ) {
             Text(
                 text = "Prévisions horaires",
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 24.dp)
+                modifier = Modifier.padding(bottom = 16.dp)
             )
-            
-            val temperatures = weather.hourlyTemperatures.take(24)
-            val times = weather.hourlyTimes.take(24)
             
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(250.dp)
-                    .padding(start = 32.dp, end = 16.dp, bottom = 32.dp)
+                    .weight(1f)
+                    .horizontalScroll(scrollState)
             ) {
-                // Axe Y (températures)
-                Column(
+                Canvas(
                     modifier = Modifier
+                        .width(1000.dp)
                         .fillMaxHeight()
-                        .align(Alignment.CenterStart)
-                        .padding(end = 12.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
                 ) {
-                    val maxTemp = temperatures.maxOrNull()?.toInt() ?: 0
-                    val minTemp = temperatures.minOrNull()?.toInt() ?: 0
-                    val step = ((maxTemp - minTemp) / 4f).roundToInt().coerceAtLeast(1)
-                    
-                    for (temp in maxTemp downTo minTemp step step) {
-                        Text(
-                            text = "$temp°",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    val temperatures = weather.hourlyTemperatures.take(24)
+                    val maxTemp = temperatures.maxOrNull() ?: 0.0
+                    val minTemp = temperatures.minOrNull() ?: 0.0
+                    val range = (maxTemp - minTemp).coerceAtLeast(1.0)
+                    val width = size.width
+                    val height = size.height
+                    val points = temperatures.mapIndexed { index, temp ->
+                        val x = width * index / 23
+                        val y = height - (height * (temp - minTemp) / range).toFloat()
+                        Offset(x, y)
+                    }
+
+                    // Dessiner les segments de ligne entre chaque point
+                    for (i in 0 until points.size - 1) {
+                        drawLine(
+                            color = primaryColor,
+                            start = points[i],
+                            end = points[i + 1],
+                            strokeWidth = 2.dp.toPx()
                         )
                     }
-                }
 
-                // Zone scrollable pour le graphique
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .horizontalScroll(scrollState)
-                ) {
-                    Canvas(
-                        modifier = Modifier
-                            .width(1000.dp)
-                            .fillMaxHeight()
-                    ) {
-                        val width = size.width
-                        val height = size.height
-                        val maxTemp = temperatures.maxOrNull()?.toFloat() ?: 0f
-                        val minTemp = temperatures.minOrNull()?.toFloat() ?: 0f
-                        val range = (maxTemp - minTemp + 4f)
-                        val spaceBetweenPoints = width / (temperatures.size - 1)
-
-                        // Lignes de grille horizontales avec effet dégradé
-                        val numLines = 5
-                        for (i in 0..numLines) {
-                            val y = height * i / numLines
-                            drawLine(
-                                color = Color.LightGray.copy(alpha = 0.2f),
-                                start = Offset(0f, y),
-                                end = Offset(width, y),
-                                strokeWidth = 1f,
-                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f))
-                            )
-                        }
-
-                        // Points et lignes de température
-                        val points = temperatures.mapIndexed { index, temp ->
-                            Offset(
-                                x = index * spaceBetweenPoints,
-                                y = height - ((temp.toFloat() - minTemp) * height / range)
-                            )
-                        }
-
-                        // Dessiner l'aire sous la courbe
-                        val path = Path().apply {
-                            moveTo(points.first().x, height)
-                            points.forEach { point ->
-                                lineTo(point.x, point.y)
-                            }
-                            lineTo(points.last().x, height)
-                            close()
-                        }
-
-                        drawPath(
-                            path = path,
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    primaryColor.copy(alpha = 0.2f),
-                                    primaryColor.copy(alpha = 0.05f)
-                                )
-                            )
+                    // Dessiner les points et les températures
+                    points.forEachIndexed { index, point ->
+                        drawCircle(
+                            color = primaryColor,
+                            radius = 4.dp.toPx(),
+                            center = point
                         )
 
-                        // Dessiner les lignes entre les points
-                        for (i in 0 until points.size - 1) {
-                            drawLine(
-                                color = primaryColor,
-                                start = points[i],
-                                end = points[i + 1],
-                                strokeWidth = 2f
-                            )
-                        }
-
-                        // Dessiner les points et températures
-                        points.forEachIndexed { index, point ->
-                            // Point extérieur (cercle blanc)
-                            drawCircle(
-                                color = Color.White,
-                                radius = 6f,
-                                center = point
-                            )
-                            // Point intérieur
-                            drawCircle(
-                                color = primaryColor,
-                                radius = 4f,
-                                center = point
-                            )
-
-                            // Température
-                            drawContext.canvas.nativeCanvas.apply {
-                                drawText(
-                                    "${temperatures[index].toInt()}°",
-                                    point.x,
-                                    point.y - 15,
-                                    textPaint
-                                )
-                            }
-                        }
+                        // Température
+                        drawContext.canvas.nativeCanvas.drawText(
+                            "${temperatures[index].toInt()}°",
+                            point.x,
+                            point.y - 15,
+                            textPaint
+                        )
                     }
                 }
             }
@@ -322,7 +293,7 @@ fun HourlyForecastCard(weather: WeatherEntity) {
                         .padding(start = 0.dp, end = 16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    times.forEach { time ->
+                    weather.hourlyTimes.take(24).forEach { time ->
                         Text(
                             text = time,
                             style = MaterialTheme.typography.bodySmall,
@@ -367,13 +338,32 @@ private fun WeatherInfo(
 }
 
 @Composable
-fun DailyForecastCard(weather: WeatherEntity) {
+fun DailyForecastCard(
+    weather: WeatherEntity,
+    modifier: Modifier = Modifier
+) {
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val scrollState = rememberScrollState()
+    val primaryColor = MaterialTheme.colorScheme.primary
+    
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .then(
+                if (isLandscape) {
+                    Modifier.fillMaxHeight()
+                } else {
+                    Modifier
+                }
+            )
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(16.dp)
+        ) {
             Text(
                 text = "Prévisions sur 7 jours",
                 style = MaterialTheme.typography.titleMedium,

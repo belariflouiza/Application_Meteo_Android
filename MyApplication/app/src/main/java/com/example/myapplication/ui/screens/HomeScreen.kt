@@ -53,6 +53,8 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.PermissionStatus
 import com.google.accompanist.permissions.rememberPermissionState
 import kotlinx.coroutines.launch
+import androidx.compose.ui.platform.LocalConfiguration
+import android.content.res.Configuration
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
@@ -68,6 +70,9 @@ fun HomeScreen(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     var searchQuery by remember { mutableStateOf("") }
     var showSearchResults by remember { mutableStateOf(false) }
+    
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     ModalNavigationDrawer(
         drawerContent = {
@@ -86,7 +91,13 @@ fun HomeScreen(
                                 headlineContent = { Text(location.name) },
                                 supportingContent = {
                                     weatherData[location.id]?.let { weather ->
-                                        Text("${weather.temperature.toInt()}°C, ${weather.condition}")
+                                        Column {
+                                            Text("${weather.temperature.toInt()}°C, ${weather.condition}")
+                                            Text(
+                                                "Min: ${weather.minTemp.toInt()}°C, Max: ${weather.maxTemp.toInt()}°C",
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
                                     }
                                 },
                                 leadingContent = {
@@ -94,9 +105,7 @@ fun HomeScreen(
                                 },
                                 trailingContent = {
                                     Row {
-                                        IconButton(onClick = {
-                                            viewModel.toggleFavorite(location)
-                                        }) {
+                                        IconButton(onClick = { viewModel.toggleFavorite(location) }) {
                                             Icon(
                                                 if (favorites.any { it.cityId == location.id }) 
                                                     Icons.Default.Favorite 
@@ -120,7 +129,7 @@ fun HomeScreen(
                         }
                     }
                     
-                    // Villes favorites avec détails météo
+                    // Villes favorites
                     items(favorites) { favorite ->
                         ListItem(
                             modifier = Modifier.clickable {
@@ -163,22 +172,6 @@ fun HomeScreen(
                                     }) {
                                         Icon(Icons.Default.Delete, "Supprimer des favoris")
                                     }
-                                    IconButton(onClick = {
-                                        viewModel.selectCity(GeocodingResultItem(
-                                            id = favorite.cityId,
-                                            name = favorite.name,
-                                            latitude = favorite.latitude,
-                                            longitude = favorite.longitude,
-                                            country = "",
-                                            admin1 = ""
-                                        ))
-                                        scope.launch {
-                                            drawerState.close()
-                                            navController.navigate("detail/${favorite.cityId}")
-                                        }
-                                    }) {
-                                        Icon(Icons.Default.ArrowForward, "Voir détails")
-                                    }
                                 }
                             }
                         )
@@ -211,87 +204,104 @@ fun HomeScreen(
                 )
             }
         ) { padding ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-            ) {
-                // Barre de recherche
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { query ->
-                        searchQuery = query
-                        showSearchResults = query.length >= 2
-                        if (query.length >= 2) {
-                            viewModel.searchCities(query)
-                        }
-                    },
+            if (isLandscape) {
+                Row(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    placeholder = { Text("Rechercher une ville...") },
-                    leadingIcon = { Icon(Icons.Default.Search, "Rechercher") },
-                    singleLine = true
-                )
-
-                // Résultats de recherche
-                if (showSearchResults) {
-                    LazyColumn {
-                        items(searchResults) { city ->
-                            ListItem(
-                                headlineContent = { Text(city.name) },
-                                supportingContent = { Text("${city.admin1}, ${city.country}") },
-                                trailingContent = {
-                                    Row {
-                                        IconButton(onClick = { viewModel.toggleFavorite(city) }) {
-                                            Icon(
-                                                if (favorites.any { it.cityId == city.id })
-                                                    Icons.Default.Favorite
-                                                else
-                                                    Icons.Default.FavoriteBorder,
-                                                "Favori"
-                                            )
-                                        }
-                                        IconButton(onClick = {
-                                            viewModel.selectCity(city)
-                                            navController.navigate("detail/${city.id}")
-                                        }) {
-                                            Icon(Icons.Default.ArrowForward, "Voir détails")
-                                        }
-                                    }
-                                },
-                                modifier = Modifier.clickable {
-                                    viewModel.selectCity(city)
-                                    navController.navigate("detail/${city.id}")
+                        .fillMaxSize()
+                        .padding(padding)
+                ) {
+                    // Zone de recherche et résultats (gauche)
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { query ->
+                                searchQuery = query
+                                showSearchResults = query.length >= 2
+                                if (query.length >= 2) {
+                                    viewModel.searchCities(query)
                                 }
-                            )
-                            Divider()
-                        }
-                    }
-                } else {
-                    // Affichage de la position actuelle et de sa météo
-                    currentLocation?.let { location ->
-                        Card(
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp)
-                                .clickable {
-                                    viewModel.selectCity(location)
-                                    navController.navigate("detail/${location.id}")
+                                .padding(bottom = 8.dp),
+                            placeholder = { Text("Rechercher une ville...") },
+                            leadingIcon = { Icon(Icons.Default.Search, "Rechercher") },
+                            singleLine = true
+                        )
+
+                        if (showSearchResults) {
+                            LazyColumn {
+                                items(searchResults) { city ->
+                                    ListItem(
+                                        headlineContent = { Text(city.name) },
+                                        supportingContent = { Text("${city.admin1}, ${city.country}") },
+                                        trailingContent = {
+                                            Row {
+                                                IconButton(onClick = { viewModel.toggleFavorite(city) }) {
+                                                    Icon(
+                                                        if (favorites.any { it.cityId == city.id })
+                                                            Icons.Default.Favorite
+                                                        else
+                                                            Icons.Default.FavoriteBorder,
+                                                        "Favori"
+                                                    )
+                                                }
+                                                IconButton(onClick = {
+                                                    viewModel.selectCity(city)
+                                                    navController.navigate("detail/${city.id}")
+                                                }) {
+                                                    Icon(Icons.Default.ArrowForward, "Voir détails")
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.clickable {
+                                            viewModel.selectCity(city)
+                                            navController.navigate("detail/${city.id}")
+                                        }
+                                    )
+                                    Divider()
                                 }
-                        ) {
-                            ListItem(
-                                headlineContent = { Text(location.name) },
-                                supportingContent = {
-                                    weatherData[location.id]?.let { weather ->
-                                        Text("${weather.temperature.toInt()}°C, ${weather.condition}")
+                            }
+                        }
+                    }
+
+                    // Position actuelle et favoris (droite)
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(8.dp)
+                    ) {
+                        currentLocation?.let { location ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 8.dp)
+                                    .clickable {
+                                        viewModel.selectCity(location)
+                                        navController.navigate("detail/${location.id}")
                                     }
-                                },
-                                leadingContent = {
-                                    Icon(Icons.Default.LocationOn, "Position actuelle")
-                                },
-                                trailingContent = {
-                                    Row {
+                            ) {
+                                ListItem(
+                                    headlineContent = { Text(location.name) },
+                                    supportingContent = {
+                                        weatherData[location.id]?.let { weather ->
+                                            Column {
+                                                Text("${weather.temperature.toInt()}°C, ${weather.condition}")
+                                                Text(
+                                                    "Min: ${weather.minTemp.toInt()}°C, Max: ${weather.maxTemp.toInt()}°C",
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
+                                        }
+                                    },
+                                    leadingContent = {
+                                        Icon(Icons.Default.LocationOn, "Position actuelle")
+                                    },
+                                    trailingContent = {
                                         IconButton(onClick = { viewModel.toggleFavorite(location) }) {
                                             Icon(
                                                 if (favorites.any { it.cityId == location.id })
@@ -301,15 +311,109 @@ fun HomeScreen(
                                                 "Favori"
                                             )
                                         }
-                                        IconButton(onClick = {
-                                            viewModel.selectCity(location)
-                                            navController.navigate("detail/${location.id}")
-                                        }) {
-                                            Icon(Icons.Default.ArrowForward, "Voir détails")
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Layout portrait
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { query ->
+                            searchQuery = query
+                            showSearchResults = query.length >= 2
+                            if (query.length >= 2) {
+                                viewModel.searchCities(query)
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        placeholder = { Text("Rechercher une ville...") },
+                        leadingIcon = { Icon(Icons.Default.Search, "Rechercher") },
+                        singleLine = true
+                    )
+
+                    if (showSearchResults) {
+                        LazyColumn {
+                            items(searchResults) { city ->
+                                ListItem(
+                                    headlineContent = { Text(city.name) },
+                                    supportingContent = { Text("${city.admin1}, ${city.country}") },
+                                    trailingContent = {
+                                        Row {
+                                            IconButton(onClick = { viewModel.toggleFavorite(city) }) {
+                                                Icon(
+                                                    if (favorites.any { it.cityId == city.id })
+                                                        Icons.Default.Favorite
+                                                    else
+                                                        Icons.Default.FavoriteBorder,
+                                                    "Favori"
+                                                )
+                                            }
+                                            IconButton(onClick = {
+                                                viewModel.selectCity(city)
+                                                navController.navigate("detail/${city.id}")
+                                            }) {
+                                                Icon(Icons.Default.ArrowForward, "Voir détails")
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.clickable {
+                                        viewModel.selectCity(city)
+                                        navController.navigate("detail/${city.id}")
+                                    }
+                                )
+                                Divider()
+                            }
+                        }
+                    } else {
+                        currentLocation?.let { location ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
+                                    .clickable {
+                                        viewModel.selectCity(location)
+                                        navController.navigate("detail/${location.id}")
+                                    }
+                            ) {
+                                ListItem(
+                                    headlineContent = { Text(location.name) },
+                                    supportingContent = {
+                                        weatherData[location.id]?.let { weather ->
+                                            Column {
+                                                Text("${weather.temperature.toInt()}°C, ${weather.condition}")
+                                                Text(
+                                                    "Min: ${weather.minTemp.toInt()}°C, Max: ${weather.maxTemp.toInt()}°C",
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
+                                        }
+                                    },
+                                    leadingContent = {
+                                        Icon(Icons.Default.LocationOn, "Position actuelle")
+                                    },
+                                    trailingContent = {
+                                        IconButton(onClick = { viewModel.toggleFavorite(location) }) {
+                                            Icon(
+                                                if (favorites.any { it.cityId == location.id })
+                                                    Icons.Default.Favorite
+                                                else
+                                                    Icons.Default.FavoriteBorder,
+                                                "Favori"
+                                            )
                                         }
                                     }
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                 }

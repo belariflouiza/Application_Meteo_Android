@@ -1,19 +1,16 @@
 package com.example.myapplication.data.dao
 
-import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
-import androidx.room.Query
+import androidx.room.*
 import com.example.myapplication.data.model.WeatherEntity
 
 @Dao
 interface WeatherDao {
+    @Query("SELECT * FROM weather WHERE cityId = :cityId")
+    suspend fun getWeatherForCity(cityId: String): WeatherEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertWeather(weather: WeatherEntity)
 
-    @Query("SELECT * FROM weather WHERE cityName = :cityName")
-    suspend fun getWeather(cityName: String): WeatherEntity?
-
-    @Query("DELETE FROM weather WHERE cityName = :cityName")
-    suspend fun deleteWeather(cityName: String)
+    @Query("DELETE FROM weather WHERE cityId = :cityId")
+    suspend fun deleteWeather(cityId: String)
 }

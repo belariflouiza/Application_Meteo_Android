@@ -3,52 +3,128 @@ package com.example.myapplication.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.myapplication.data.model.FavoriteCity
+import com.example.myapplication.data.model.GeocodingResultItem
 import com.example.myapplication.data.model.WeatherEntity
 import com.example.myapplication.data.repository.WeatherRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() {
+class WeatherViewModel(
+    private val repository: WeatherRepository
+) : ViewModel() {
+    private val _searchResults = MutableStateFlow<List<GeocodingResultItem>>(emptyList())
+    val searchResults = _searchResults.asStateFlow()
 
-    // État pour stocker les données météo
-    private val _weather = MutableStateFlow<WeatherEntity?>(null)
-    val weather: StateFlow<WeatherEntity?> = _weather
+    private val _favorites = MutableStateFlow<List<FavoriteCity>>(emptyList())
+    val favorites = _favorites.asStateFlow()
 
-    // État pour stocker les villes favorites
-    private val _favoriteCities = MutableStateFlow<List<FavoriteCity>>(emptyList())
-    val favoriteCities: StateFlow<List<FavoriteCity>> = _favoriteCities
+    private val _weatherData = MutableStateFlow<Map<String, WeatherEntity>>(emptyMap())
+    val weatherData = _weatherData.asStateFlow()
 
-    // Fonction pour récupérer la météo d'une ville
-    fun getWeather(cityName: String) {
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading = _isLoading.asStateFlow()
+
+    private val _error = MutableStateFlow<String?>(null)
+    val error = _error.asStateFlow()
+
+    init {
+        loadFavorites()
+    }
+
+    fun searchCities(query: String) {
         viewModelScope.launch {
-            _weather.value = repository.getWeather(cityName)
+            _isLoading.value = true
+            try {
+                repository.searchCity(query)
+                    .onSuccess { _searchResults.value = it }
+                    .onFailure { _error.value = it.message }
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 
-    // Fonction pour ajouter une ville aux favoris
-    fun addFavoriteCity(city: FavoriteCity) {
+    fun getWeatherForCity(city: GeocodingResultItem) {
         viewModelScope.launch {
-            repository.addFavoriteCity(city)
-            // Mettre à jour la liste des favoris après l'ajout
-            _favoriteCities.value = repository.getFavoriteCities()
+            _isLoading.value = true
+            try {
+                repository.getWeatherForCity(city.id, city.latitude, city.longitude)
+                    .onSuccess { weather ->
+                        _weatherData.value = _weatherData.value + (city.id to weather)
+                        addFavoriteCity(city)
+                    }
+                    .onFailure { _error.value = it.message }
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 
-    // Fonction pour supprimer une ville des favoris
-    fun removeFavoriteCity(cityName: String) {
+    fun getCurrentLocationWeather(latitude: Double, longitude: Double) {
         viewModelScope.launch {
-            repository.removeFavoriteCity(cityName)
-            // Mettre à jour la liste des favoris après la suppression
-            _favoriteCities.value = repository.getFavoriteCities()
+            _isLoading.value = true
+            try {
+                repository.getCurrentLocationWeather(latitude, longitude)
+                    .onSuccess { weather ->
+                        _weatherData.value = _weatherData.value + (weather.cityId to weather)
+                    }
+                    .onFailure { _error.value = it.message }
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 
-    // Fonction pour charger la liste des villes favorites
-    fun loadFavoriteCities() {
+    fun addFavoriteCity(city: GeocodingResultItem) {
         viewModelScope.launch {
-            // Charger la liste des favoris depuis le repository
-            _favoriteCities.value = repository.getFavoriteCities()
+            try {
+                repository.addFavoriteCity(city)
+                loadFavorites()
+            } catch (e: Exception) {
+                _error.value = e.message
+            }
         }
+    }
+
+    fun removeFavoriteCity(cityId: String) {
+        viewModelScope.launch {
+            try {
+                repository.removeFavoriteCity(cityId)
+                _weatherData.value = _weatherData.value - cityId
+                loadFavorites()
+            } catch (e: Exception) {
+                _error.value = e.message
+            }
+        }
+    }
+
+    private fun loadFavorites() {
+        viewModelScope.launch {
+            try {
+                val favorites = repository.getFavoriteCities()
+                _favorites.value = favorites
+                favorites.forEach { city ->
+                    refreshWeatherData(city)
+                }
+            } catch (e: Exception) {
+                _error.value = e.message
+            }
+        }
+    }
+
+    private fun refreshWeatherData(city: FavoriteCity) {
+        viewModelScope.launch {
+            repository.getWeatherForCity(city.cityId, city.latitude, city.longitude)
+                .onSuccess { weather ->
+                    _weatherData.value = _weatherData.value + (city.cityId to weather)
+                }
+                .onFailure { _error.value = it.message }
+        }
+    }
+
+    fun clearError() {
+        _error.value = null
     }
 }

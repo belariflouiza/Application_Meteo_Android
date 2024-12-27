@@ -1,111 +1,120 @@
 package com.example.myapplication.data.repository
 
+import android.content.Context
+import android.util.Log
+import com.example.myapplication.data.network.GeocodingApiService
+import com.example.myapplication.data.network.WeatherApiService
 import com.example.myapplication.data.dao.FavoriteCityDao
 import com.example.myapplication.data.dao.WeatherDao
 import com.example.myapplication.data.model.*
-import com.example.myapplication.data.network.GeocodingApiService
-import com.example.myapplication.data.network.WeatherApiService
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.time.LocalDateTime
+import com.example.myapplication.utils.NetworkUtils
 
 class WeatherRepository(
     private val weatherApiService: WeatherApiService,
     private val geocodingApiService: GeocodingApiService,
     private val favoriteCityDao: FavoriteCityDao,
-    private val weatherDao: WeatherDao
+    private val weatherDao: WeatherDao,
+    private val context: Context
 ) {
-    suspend fun searchCity(query: String): Result<List<GeocodingResultItem>> = withContext(Dispatchers.IO) {
-        try {
+    companion object {
+        private const val CACHE_DURATION = 30 * 60 * 1000 // 30 minutes en millisecondes
+    }
+
+    suspend fun searchCities(query: String): List<GeocodingResultItem> {
+        if (!NetworkUtils.isNetworkAvailable(context)) {
+            throw Exception("Pas de connexion internet")
+        }
+
+        return try {
             val response = geocodingApiService.searchCity(query)
-            Result.success(response.results)
+            response.results
         } catch (e: Exception) {
-            Result.failure(e)
+            throw Exception("Erreur lors de la recherche: ${e.message}")
         }
     }
 
-    suspend fun getFavoriteCities(): List<FavoriteCity> = withContext(Dispatchers.IO) {
-        favoriteCityDao.getAllFavoriteCities()
-    }
+    fun getFavoriteCities() = favoriteCityDao.getAllFavoriteCitiesFlow()
 
-    suspend fun addFavoriteCity(city: GeocodingResultItem) = withContext(Dispatchers.IO) {
+    suspend fun addFavoriteCity(city: GeocodingResultItem) {
         val favoriteCity = FavoriteCity(
             cityId = city.id,
-            name = "${city.name}, ${city.country}",
+            name = city.name,
             latitude = city.latitude,
             longitude = city.longitude
         )
         favoriteCityDao.insertFavoriteCity(favoriteCity)
     }
 
-    suspend fun removeFavoriteCity(cityId: String) = withContext(Dispatchers.IO) {
+    suspend fun removeFavoriteCity(cityId: String) {
         favoriteCityDao.deleteFavoriteCity(cityId)
-        weatherDao.deleteWeather(cityId)
     }
 
-    suspend fun getCurrentLocationWeather(latitude: Double, longitude: Double): Result<WeatherEntity> = withContext(Dispatchers.IO) {
-        try {
-            val weatherResponse = weatherApiService.getWeather(latitude, longitude)
-            val currentWeather = weatherResponse.current_weather
-                ?: return@withContext Result.failure(Exception("Weather data not available"))
-
-            val weatherEntity = WeatherEntity(
-                cityId = "current_location",
-                cityName = "Position actuelle",
-                temperature = currentWeather.temperature,
-                condition = getWeatherDescription(currentWeather.weathercode),
-                minTemp = weatherResponse.hourly.temperature_2m.minOrNull() ?: currentWeather.temperature,
-                maxTemp = weatherResponse.hourly.temperature_2m.maxOrNull() ?: currentWeather.temperature,
-                windSpeed = currentWeather.windspeed
-            )
-
-            weatherDao.insertWeather(weatherEntity)
-            Result.success(weatherEntity)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    suspend fun getWeatherForCity(cityId: String, latitude: Double, longitude: Double): Result<WeatherEntity> = withContext(Dispatchers.IO) {
-        try {
-            // Essayer d'abord de récupérer depuis le cache
-            weatherDao.getWeatherForCity(cityId)?.let {
-                if (shouldUpdateCache(it.lastUpdated)) {
-                    return@withContext fetchAndCacheWeather(cityId, latitude, longitude)
-                }
-                return@withContext Result.success(it)
+    suspend fun getWeatherForCity(cityId: String, latitude: Double, longitude: Double): Result<WeatherEntity> = runCatching {
+        Log.d("WeatherRepository", "Fetching weather for city $cityId at $latitude, $longitude")
+        
+        if (!NetworkUtils.isNetworkAvailable(context)) {
+            Log.d("WeatherRepository", "No network connection")
+            val cachedWeather = weatherDao.getWeatherForCity(cityId)
+            if (cachedWeather != null) {
+                Log.d("WeatherRepository", "Returning cached weather: $cachedWeather")
+                return@runCatching cachedWeather
             }
-
-            // Si pas dans le cache, faire l'appel API
-            return@withContext fetchAndCacheWeather(cityId, latitude, longitude)
-        } catch (e: Exception) {
-            Result.failure(e)
+            throw Exception("Pas de connexion internet et aucune donnée en cache")
         }
-    }
 
-    private suspend fun fetchAndCacheWeather(cityId: String, latitude: Double, longitude: Double): Result<WeatherEntity> {
-        return try {
-            val response = weatherApiService.getWeather(latitude, longitude)
+        try {
+            Log.d("WeatherRepository", "Making API call to Open-Meteo")
+            val response = weatherApiService.getWeather(
+                latitude = latitude,
+                longitude = longitude
+            )
+            Log.d("WeatherRepository", "API response received: $response")
+            
+            val cityName = favoriteCityDao.getFavoriteCity(cityId)?.name ?: run {
+                Log.d("WeatherRepository", "City name not found in favorites, using default")
+                "Ville inconnue"
+            }
+            
+            Log.d("WeatherRepository", "Current weather: ${response.current_weather}")
+            Log.d("WeatherRepository", "Daily weather: ${response.daily}")
+            Log.d("WeatherRepository", "Hourly weather: ${response.hourly}")
+            
             val weather = WeatherEntity(
                 cityId = cityId,
+                cityName = cityName,
                 temperature = response.current_weather.temperature,
-                condition = getWeatherDescription(response.current_weather.weathercode),
                 minTemp = response.daily.temperature_2m_min[0],
                 maxTemp = response.daily.temperature_2m_max[0],
+                condition = getWeatherDescription(response.current_weather.weathercode),
                 windSpeed = response.current_weather.windspeed,
-                lastUpdated = System.currentTimeMillis()
+                timestamp = System.currentTimeMillis(),
+                hourlyTemperatures = response.hourly.temperature_2m.take(24),
+                hourlyTimes = response.hourly.time.take(24).map { time ->
+                    time.substringAfterLast('T').substringBefore(':') + "h"
+                }
             )
+            Log.d("WeatherRepository", "Created WeatherEntity: $weather")
+            
             weatherDao.insertWeather(weather)
-            Result.success(weather)
+            Log.d("WeatherRepository", "Weather saved to database")
+            weather
         } catch (e: Exception) {
-            Result.failure(e)
+            Log.e("WeatherRepository", "Error fetching weather", e)
+            Log.e("WeatherRepository", "Error details: ${e.message}")
+            e.printStackTrace()
+            val cachedWeather = weatherDao.getWeatherForCity(cityId)
+            if (cachedWeather != null) {
+                Log.d("WeatherRepository", "Returning cached weather after error: $cachedWeather")
+                return@runCatching cachedWeather
+            }
+            throw Exception("Erreur lors de la récupération des données météo: ${e.message}")
         }
     }
 
-    private fun shouldUpdateCache(lastUpdated: Long): Boolean {
+    private fun isCacheExpired(timestamp: Long): Boolean {
         val currentTime = System.currentTimeMillis()
-        val oneHourInMillis = 60 * 60 * 1000
-        return (currentTime - lastUpdated) > oneHourInMillis
+        val cacheAge = currentTime - timestamp
+        return cacheAge > CACHE_DURATION
     }
 
     private fun getWeatherDescription(code: Int): String {
@@ -122,26 +131,6 @@ class WeatherRepository(
             95 -> "Orage"
             96, 99 -> "Orage avec grêle"
             else -> "Conditions inconnues"
-        }
-    }
-
-    suspend fun getHourlyWeatherForCity(cityId: String): Result<List<HourlyWeather>> = runCatching {
-        val city = favoriteCityDao.getFavoriteCity(cityId) ?: throw Exception("Ville non trouvée")
-        
-        val response = weatherApiService.getWeather(
-            latitude = city.latitude,
-            longitude = city.longitude,
-            hourly = "temperature_2m,weathercode",
-            timezone = "auto"
-        )
-
-        response.hourly.time.mapIndexed { index, time ->
-            HourlyWeather(
-                time = LocalDateTime.parse(time),
-                temperature = response.hourly.temperature_2m[index],
-                weatherCode = response.hourly.weathercode[index],
-                weatherDescription = getWeatherDescription(response.hourly.weathercode[index])
-            )
         }
     }
 }

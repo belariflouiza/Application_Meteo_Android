@@ -39,188 +39,245 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.ui.text.style.TextAlign
 import kotlinx.coroutines.delay
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.PermissionStatus
+import com.google.accompanist.permissions.rememberPermissionState
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun HomeScreen(
     navController: NavController,
     viewModel: WeatherViewModel
 ) {
+    val context = LocalContext.current
+    var showPermissionDialog by remember { mutableStateOf(false) }
+    var showFavoritesDialog by remember { mutableStateOf(false) }
+    val errorMessage by viewModel.error.collectAsState()
+    val successMessage by viewModel.successMessage.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    val selectedCity by viewModel.selectedCity.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val favorites by viewModel.favorites.collectAsState()
-    val weatherData by viewModel.weatherData.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
-    val error by viewModel.error.collectAsState()
-    val successMessage by viewModel.successMessage.collectAsState()
-    val showSearchResults by viewModel.showSearchResults.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
     
     var searchQuery by remember { mutableStateOf("") }
-    val context = LocalContext.current
-    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
+    
+    val locationPermissionState = rememberPermissionState(
+        android.Manifest.permission.ACCESS_FINE_LOCATION
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.getWeatherForCurrentLocation()
+        } else {
+            showPermissionDialog = true
+        }
+    }
+
+    LaunchedEffect(errorMessage, successMessage) {
+        errorMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearError()
+        }
+        successMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearSuccessMessage()
+            selectedCity?.let { city ->
+                navController.navigate("detail/${city.id}")
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Météo") },
+                navigationIcon = {
+                    IconButton(onClick = { showFavoritesDialog = true }) {
+                        Icon(Icons.Default.Menu, contentDescription = "Menu favoris")
+                    }
+                },
                 actions = {
-                    IconButton(onClick = {
-                        getCurrentLocation(context, fusedLocationClient) { location ->
-                            location?.let {
-                                viewModel.getCurrentLocationWeather(it.latitude, it.longitude)
+                    IconButton(
+                        onClick = {
+                            when (locationPermissionState.status) {
+                                is PermissionStatus.Granted -> {
+                                    viewModel.getWeatherForCurrentLocation()
+                                }
+                                is PermissionStatus.Denied -> {
+                                    if ((locationPermissionState.status as PermissionStatus.Denied).shouldShowRationale) {
+                                        showPermissionDialog = true
+                                    } else {
+                                        locationPermissionState.launchPermissionRequest()
+                                    }
+                                }
                             }
                         }
-                    }) {
-                        Icon(Icons.Default.LocationOn, "Ma position")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocationOn,
+                            contentDescription = "Ma position"
+                        )
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Barre de recherche
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { 
-                    searchQuery = it
-                    if (it.length >= 2) {
-                        viewModel.setShowSearchResults(true)
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Barre de recherche
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { 
+                        searchQuery = it
                         viewModel.searchCities(it)
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                placeholder = { Text("Rechercher une ville...") },
-                leadingIcon = { 
-                    Icon(Icons.Default.Search, "Rechercher")
-                },
-                trailingIcon = if (searchQuery.isNotEmpty()) {
-                    {
-                        IconButton(onClick = { 
-                            searchQuery = ""
-                            viewModel.setShowSearchResults(false)
-                        }) {
-                            Icon(Icons.Default.Clear, "Effacer")
-                        }
-                    }
-                } else null,
-                singleLine = true,
-                shape = RoundedCornerShape(24.dp)
-            )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    placeholder = { Text("Rechercher une ville...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Rechercher") },
+                    singleLine = true
+                )
 
-            if (showSearchResults && searchQuery.isNotEmpty()) {
                 // Résultats de recherche
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                ) {
+                LazyColumn {
                     items(searchResults) { result ->
-                        val weather = weatherData[result.id]
-                        if (weather != null) {
-                            WeatherPreviewCard(
-                                result = result,
-                                weather = weather,
-                                isFavorite = favorites.any { it.cityId == result.id },
-                                onFavoriteClick = { viewModel.addFavoriteCity(result) },
-                                onDetailsClick = { navController.navigate("detail/${result.id}") }
-                            )
-                        } else {
-                            SearchResultItem(
-                                result = result,
-                                isFavorite = favorites.any { it.cityId == result.id },
-                                onItemClick = { viewModel.getWeatherForCity(result) },
-                                onFavoriteClick = { viewModel.addFavoriteCity(result) }
-                            )
+                        SearchResultItem(
+                            result = result,
+                            isFavorite = favorites.any { it.cityId == result.id },
+                            onItemClick = {
+                                viewModel.setSelectedCity(result)
+                                navController.navigate("detail/${result.id}")
+                            },
+                            onFavoriteClick = { viewModel.addFavoriteCity(result) }
+                        )
+                    }
+                }
+            }
+
+            // Indicateur de chargement
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .size(50.dp)
+                        .align(Alignment.Center)
+                )
+            }
+
+            // Dialog de permission
+            if (showPermissionDialog) {
+                AlertDialog(
+                    onDismissRequest = { showPermissionDialog = false },
+                    title = { Text("Permission de localisation") },
+                    text = { 
+                        Text("L'application a besoin de la permission de localisation pour afficher la météo de votre position actuelle.")
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                showPermissionDialog = false
+                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.fromParts("package", context.packageName, null)
+                                }
+                                context.startActivity(intent)
+                            }
+                        ) {
+                            Text("Paramètres")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showPermissionDialog = false }) {
+                            Text("Annuler")
                         }
                     }
-                }
-            } else {
-                // En-tête des favoris
-                if (favorites.isNotEmpty()) {
-                    Text(
-                        text = "Mes villes favorites",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                    )
-                }
-                
-                // Liste des favoris
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                ) {
-                    items(favorites) { favorite ->
-                        FavoriteWeatherCard(
-                            city = favorite,
-                            weather = weatherData[favorite.cityId],
-                            onRemoveClick = { viewModel.removeFavoriteCity(favorite.cityId) },
-                            onCardClick = { navController.navigate("detail/${favorite.cityId}") }
-                        )
-                    }
-                }
-                
-                // Message si pas de favoris
-                if (favorites.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Recherchez une ville pour l'ajouter aux favoris",
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(16.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        if (isLoading) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
-        }
-
-        error?.let { errorMessage ->
-            AlertDialog(
-                onDismissRequest = { viewModel.clearError() },
-                title = { Text("Erreur") },
-                text = { Text(errorMessage) },
-                confirmButton = {
-                    TextButton(onClick = { viewModel.clearError() }) {
-                        Text("OK")
-                    }
-                }
-            )
-        }
-
-        successMessage?.let { message ->
-            LaunchedEffect(message) {
-                delay(2000) // Le message disparaît après 2 secondes
-                viewModel.clearSuccessMessage()
+                )
             }
 
-            Snackbar(
-                modifier = Modifier.padding(16.dp),
-                action = {
-                    TextButton(onClick = { viewModel.clearSuccessMessage() }) {
-                        Text("OK")
+            // Dialog des favoris
+            if (showFavoritesDialog) {
+                AlertDialog(
+                    onDismissRequest = { showFavoritesDialog = false },
+                    title = { Text("Villes favorites") },
+                    text = {
+                        if (favorites.isEmpty()) {
+                            Text("Aucune ville favorite")
+                        } else {
+                            LazyColumn {
+                                items(favorites) { favorite ->
+                                    ListItem(
+                                        headlineContent = { Text(favorite.name) },
+                                        trailingContent = {
+                                            Row {
+                                                IconButton(
+                                                    onClick = {
+                                                        viewModel.setSelectedCity(GeocodingResultItem(
+                                                            id = favorite.cityId,
+                                                            name = favorite.name,
+                                                            latitude = favorite.latitude,
+                                                            longitude = favorite.longitude,
+                                                            country = "",
+                                                            admin1 = "",
+                                                            country_code = ""
+                                                        ))
+                                                        navController.navigate("detail/${favorite.cityId}")
+                                                        showFavoritesDialog = false
+                                                    }
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.ArrowForward,
+                                                        contentDescription = "Voir détails"
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = { 
+                                                        viewModel.removeFavoriteCity(favorite.cityId)
+                                                    }
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Delete,
+                                                        contentDescription = "Supprimer des favoris"
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.clickable {
+                                            viewModel.setSelectedCity(GeocodingResultItem(
+                                                id = favorite.cityId,
+                                                name = favorite.name,
+                                                latitude = favorite.latitude,
+                                                longitude = favorite.longitude,
+                                                country = "",
+                                                admin1 = "",
+                                                country_code = ""
+                                            ))
+                                            navController.navigate("detail/${favorite.cityId}")
+                                            showFavoritesDialog = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showFavoritesDialog = false }) {
+                            Text("Fermer")
+                        }
                     }
-                }
-            ) {
-                Text(message)
+                )
             }
         }
     }
@@ -239,22 +296,37 @@ private fun SearchResultItem(
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .clickable(onClick = onItemClick)
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = result.name,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = "${result.admin1 ?: ""}, ${result.country}",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = result.name,
-                        style = MaterialTheme.typography.titleMedium
+                IconButton(onClick = onFavoriteClick) {
+                    Icon(
+                        if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = if (isFavorite) "Retirer des favoris" else "Ajouter aux favoris"
                     )
-                    Text(
-                        text = "${result.country} (${result.country_code})",
-                        style = MaterialTheme.typography.bodyMedium
+                }
+                IconButton(onClick = onItemClick) {
+                    Icon(
+                        Icons.Default.ArrowForward,
+                        contentDescription = "Voir les détails"
                     )
                 }
             }
@@ -304,7 +376,7 @@ private fun WeatherPreviewCard(
                     }
                 }
             }
-            
+
             weather?.let {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
@@ -371,7 +443,7 @@ private fun FavoriteWeatherCard(
                     Icon(Icons.Default.Delete, "Supprimer des favoris")
                 }
             }
-            
+
             weather?.let {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
@@ -469,4 +541,3 @@ private fun getCurrentLocation(
         onLocationResult(null)
     }
 }
-

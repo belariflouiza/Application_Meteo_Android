@@ -2,24 +2,19 @@ package com.example.myapplication
 
 import android.app.Application
 import com.example.myapplication.data.database.AppDatabase
-import com.example.myapplication.data.repository.WeatherRepository
 import com.example.myapplication.data.network.ApiClient
+import com.example.myapplication.data.repository.WeatherRepository
 
 class WeatherApplication : Application() {
-    lateinit var weatherRepository: WeatherRepository
-
-    override fun onCreate() {
-        super.onCreate()
-        initializeRepository()
-    }
-
-    private fun initializeRepository() {
-        val database = AppDatabase.getDatabase(this)
-        weatherRepository = WeatherRepository(
-            weatherApiService = ApiClient.weatherService,
-            geocodingApiService = ApiClient.geocodingService,
+    private val database by lazy { AppDatabase.getDatabase(this) }
+    
+    val weatherRepository by lazy {
+        WeatherRepository(
+            weatherApiService = ApiClient.weatherApiService,
+            geocodingApiService = ApiClient.geocodingApiService,
             favoriteCityDao = database.favoriteCityDao(),
-            weatherDao = database.weatherDao()
+            weatherDao = database.weatherDao(),
+            context = this
         )
     }
 } 

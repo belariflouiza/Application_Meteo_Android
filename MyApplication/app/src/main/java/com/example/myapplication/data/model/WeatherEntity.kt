@@ -7,11 +7,13 @@ import androidx.room.PrimaryKey
 data class WeatherEntity(
     @PrimaryKey
     val cityId: String,
-    val cityName: String = "",
+    val cityName: String,
     val temperature: Double,
-    val condition: String,
     val minTemp: Double,
     val maxTemp: Double,
+    val condition: String,
     val windSpeed: Double,
-    val lastUpdated: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val hourlyTemperatures: List<Double> = emptyList(),
+    val hourlyTimes: List<String> = emptyList()
 ) 

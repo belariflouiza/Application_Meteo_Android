@@ -18,7 +18,6 @@ interface WeatherApiService {
 data class WeatherResponse(
     val latitude: Double,
     val longitude: Double,
-    val timezone: String,
     val current_weather: CurrentWeather,
     val hourly: Hourly,
     val daily: Daily
@@ -34,7 +33,8 @@ data class CurrentWeather(
 data class Hourly(
     val time: List<String>,
     val temperature_2m: List<Double>,
-    val windspeed_10m: List<Double>
+    val windspeed_10m: List<Double>,
+    val weathercode: List<Int>
 )
 
 data class Daily(

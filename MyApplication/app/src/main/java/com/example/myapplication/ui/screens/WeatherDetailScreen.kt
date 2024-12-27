@@ -1,38 +1,47 @@
 package com.example.myapplication.ui.screens
 
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import com.example.myapplication.data.model.WeatherEntity
+import com.patrykandpatrick.vico.compose.axis.horizontal.bottomAxis
+import com.patrykandpatrick.vico.compose.axis.vertical.startAxis
+import com.patrykandpatrick.vico.compose.chart.Chart
+import com.patrykandpatrick.vico.compose.chart.line.lineChart
+import com.patrykandpatrick.vico.core.entry.entryModelOf
+import com.patrykandpatrick.vico.core.entry.FloatEntry
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import com.example.myapplication.data.model.HourlyWeather
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import com.example.myapplication.ui.viewmodel.WeatherViewModel
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.ui.graphics.vector.ImageVector
 
+@RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WeatherDetailScreen(
-    cityId: String,
     navController: NavController,
-    viewModel: WeatherViewModel
+    viewModel: WeatherViewModel,
+    cityId: String
 ) {
-    val weatherData by viewModel.weatherData.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
-    val error by viewModel.error.collectAsState()
+    val weatherData by viewModel.hourlyWeatherData.collectAsState()
+    val cityName by viewModel.selectedCityName.collectAsState()
+
+    LaunchedEffect(cityId) {
+        viewModel.loadHourlyWeather(cityId)
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(weatherData[cityId]?.cityName ?: "") },
+                title = { Text(cityName ?: "Détails météo") },
                 navigationIcon = {
                     IconButton(onClick = { navController.navigateUp() }) {
                         Icon(Icons.Default.ArrowBack, "Retour")
@@ -41,91 +50,74 @@ fun WeatherDetailScreen(
             )
         }
     ) { padding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .padding(16.dp)
         ) {
-            weatherData[cityId]?.let { weather ->
-                Column(
+            Text(
+                text = "Prévisions horaires",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            weatherData?.let { hourlyData: List<HourlyWeather> ->
+                val entries = hourlyData.mapIndexed { index, data ->
+                    FloatEntry(
+                        x = index.toFloat(),
+                        y = data.temperature.toFloat()
+                    )
+                }
+
+                Chart(
+                    chart = lineChart(),
+                    model = entryModelOf(entries),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    // Température actuelle
-                    Text(
-                        text = "${weather.temperature}°C",
-                        style = MaterialTheme.typography.displayLarge
-                    )
+                        .height(200.dp),
+                    startAxis = startAxis(),
+                    bottomAxis = bottomAxis()
+                )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                    // Conditions météo
-                    Text(
-                        text = weather.condition,
-                        style = MaterialTheme.typography.titleLarge
-                    )
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // Détails
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        WeatherDetailItem(
-                            icon = Icons.Default.KeyboardArrowDown,
-                            label = "Min",
-                            value = "${weather.minTemp}°C"
-                        )
-                        WeatherDetailItem(
-                            icon = Icons.Default.KeyboardArrowUp,
-                            label = "Max",
-                            value = "${weather.maxTemp}°C"
-                        )
-                        WeatherDetailItem(
-                            icon = Icons.Default.Info,
-                            label = "Vent",
-                            value = "${weather.windSpeed} km/h"
-                        )
+                LazyColumn {
+                    items(hourlyData) { weather ->
+                        HourlyWeatherItem(weather)
                     }
                 }
-            }
-
-            if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.align(Alignment.Center)
-                )
-            }
-
-            error?.let { errorMessage ->
-                AlertDialog(
-                    onDismissRequest = { viewModel.clearError() },
-                    title = { Text("Erreur") },
-                    text = { Text(errorMessage) },
-                    confirmButton = {
-                        TextButton(onClick = { viewModel.clearError() }) {
-                            Text("OK")
-                        }
-                    }
-                )
             }
         }
     }
 }
 
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
-private fun WeatherDetailItem(
-    icon: ImageVector,
-    label: String,
-    value: String
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally
+private fun HourlyWeatherItem(weather: HourlyWeather) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
     ) {
-        Icon(icon, contentDescription = label)
-        Text(label, style = MaterialTheme.typography.bodySmall)
-        Text(value, style = MaterialTheme.typography.bodyLarge)
+        Row(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = weather.time.format(DateTimeFormatter.ofPattern("HH:mm")),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                text = "${weather.temperature}°C",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                text = weather.weatherDescription,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
     }
 }

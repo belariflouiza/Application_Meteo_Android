@@ -10,8 +10,11 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import androidx.navigation.NavType
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.myapplication.ui.screens.HomeScreen
+import com.example.myapplication.ui.screens.WeatherDetailScreen
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import com.example.myapplication.ui.viewmodel.WeatherViewModel
 import com.example.myapplication.ui.viewmodel.WeatherViewModelFactory
@@ -37,9 +40,20 @@ class MainActivity : ComponentActivity() {
                             val viewModel: WeatherViewModel = viewModel(
                                 factory = WeatherViewModelFactory(weatherRepository)
                             )
-                            HomeScreen(
+                            HomeScreen(navController = navController, viewModel = viewModel)
+                        }
+                        composable(
+                            "detail/{cityId}",
+                            arguments = listOf(navArgument("cityId") { type = NavType.StringType })
+                        ) { backStackEntry ->
+                            val cityId = backStackEntry.arguments?.getString("cityId") ?: return@composable
+                            val viewModel: WeatherViewModel = viewModel(
+                                factory = WeatherViewModelFactory(weatherRepository)
+                            )
+                            WeatherDetailScreen(
                                 navController = navController,
-                                viewModel = viewModel
+                                viewModel = viewModel,
+                                cityId = cityId
                             )
                         }
                     }

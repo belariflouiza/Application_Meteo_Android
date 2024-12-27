@@ -7,6 +7,7 @@ import com.example.myapplication.data.network.GeocodingApiService
 import com.example.myapplication.data.network.WeatherApiService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.time.LocalDateTime
 
 class WeatherRepository(
     private val weatherApiService: WeatherApiService,
@@ -121,6 +122,26 @@ class WeatherRepository(
             95 -> "Orage"
             96, 99 -> "Orage avec grêle"
             else -> "Conditions inconnues"
+        }
+    }
+
+    suspend fun getHourlyWeatherForCity(cityId: String): Result<List<HourlyWeather>> = runCatching {
+        val city = favoriteCityDao.getFavoriteCity(cityId) ?: throw Exception("Ville non trouvée")
+        
+        val response = weatherApiService.getWeather(
+            latitude = city.latitude,
+            longitude = city.longitude,
+            hourly = "temperature_2m,weathercode",
+            timezone = "auto"
+        )
+
+        response.hourly.time.mapIndexed { index, time ->
+            HourlyWeather(
+                time = LocalDateTime.parse(time),
+                temperature = response.hourly.temperature_2m[index],
+                weatherCode = response.hourly.weathercode[index],
+                weatherDescription = getWeatherDescription(response.hourly.weathercode[index])
+            )
         }
     }
 }

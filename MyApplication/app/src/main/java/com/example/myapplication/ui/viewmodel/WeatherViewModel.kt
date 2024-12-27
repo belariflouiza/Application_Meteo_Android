@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.myapplication.data.model.FavoriteCity
 import com.example.myapplication.data.model.GeocodingResultItem
+import com.example.myapplication.data.model.HourlyWeather
 import com.example.myapplication.data.model.WeatherEntity
 import com.example.myapplication.data.repository.WeatherRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +34,12 @@ class WeatherViewModel(
 
     private val _showSearchResults = MutableStateFlow(false)
     val showSearchResults = _showSearchResults.asStateFlow()
+
+    private val _hourlyWeatherData = MutableStateFlow<List<HourlyWeather>?>(null)
+    val hourlyWeatherData = _hourlyWeatherData.asStateFlow()
+
+    private val _selectedCityName = MutableStateFlow<String?>(null)
+    val selectedCityName = _selectedCityName.asStateFlow()
 
     init {
         loadFavorites()
@@ -141,5 +148,21 @@ class WeatherViewModel(
 
     fun clearSuccessMessage() {
         _successMessage.value = null
+    }
+
+    fun loadHourlyWeather(cityId: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                repository.getHourlyWeatherForCity(cityId)
+                    .onSuccess { hourlyData ->
+                        _hourlyWeatherData.value = hourlyData
+                        _selectedCityName.value = weatherData.value[cityId]?.cityName
+                    }
+                    .onFailure { _error.value = it.message }
+            } finally {
+                _isLoading.value = false
+            }
+        }
     }
 }

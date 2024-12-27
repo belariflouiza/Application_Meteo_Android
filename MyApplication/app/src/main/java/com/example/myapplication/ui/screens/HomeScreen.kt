@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.example.myapplication.data.model.FavoriteCity
 import com.example.myapplication.data.model.GeocodingResultItem
 import com.example.myapplication.data.model.WeatherEntity
 import com.example.myapplication.ui.viewmodel.WeatherViewModel
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.ui.text.style.TextAlign
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,10 +94,7 @@ fun HomeScreen(
                     .padding(16.dp),
                 placeholder = { Text("Rechercher une ville...") },
                 leadingIcon = { 
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Rechercher"
-                    )
+                    Icon(Icons.Default.Search, "Rechercher")
                 },
                 trailingIcon = if (searchQuery.isNotEmpty()) {
                     {
@@ -119,17 +118,35 @@ fun HomeScreen(
                         .weight(1f)
                 ) {
                     items(searchResults) { result ->
-                        SearchResultItem(
-                            result = result,
-                            onItemClick = {
-                                viewModel.getWeatherForCity(result)
-                                showSearchResults = false
-                                searchQuery = ""
-                            }
-                        )
+                        val weather = weatherData[result.id]
+                        if (weather != null) {
+                            WeatherPreviewCard(
+                                result = result,
+                                weather = weather,
+                                isFavorite = favorites.any { it.cityId == result.id },
+                                onFavoriteClick = { viewModel.addFavoriteCity(result) },
+                                onDetailsClick = { navController.navigate("detail/${result.id}") }
+                            )
+                        } else {
+                            SearchResultItem(
+                                result = result,
+                                isFavorite = favorites.any { it.cityId == result.id },
+                                onItemClick = { viewModel.getWeatherForCity(result) },
+                                onFavoriteClick = { viewModel.addFavoriteCity(result) }
+                            )
+                        }
                     }
                 }
             } else {
+                // En-tête des favoris
+                if (favorites.isNotEmpty()) {
+                    Text(
+                        text = "Mes villes favorites",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+                
                 // Liste des favoris
                 LazyColumn(
                     modifier = Modifier
@@ -137,11 +154,28 @@ fun HomeScreen(
                         .weight(1f)
                 ) {
                     items(favorites) { favorite ->
-                        WeatherCard(
+                        FavoriteWeatherCard(
+                            city = favorite,
                             weather = weatherData[favorite.cityId],
-                            isFavorite = true,
-                            onFavoriteClick = { viewModel.removeFavoriteCity(favorite.cityId) },
+                            onRemoveClick = { viewModel.removeFavoriteCity(favorite.cityId) },
                             onCardClick = { navController.navigate("detail/${favorite.cityId}") }
+                        )
+                    }
+                }
+                
+                // Message si pas de favoris
+                if (favorites.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Recherchez une ville pour l'ajouter aux favoris",
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(16.dp)
                         )
                     }
                 }
@@ -175,7 +209,9 @@ fun HomeScreen(
 @Composable
 private fun SearchResultItem(
     result: GeocodingResultItem,
-    onItemClick: () -> Unit
+    isFavorite: Boolean,
+    onItemClick: () -> Unit,
+    onFavoriteClick: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -186,23 +222,106 @@ private fun SearchResultItem(
         Column(
             modifier = Modifier.padding(16.dp)
         ) {
-            Text(
-                text = result.name,
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(
-                text = "${result.country} (${result.country_code})",
-                style = MaterialTheme.typography.bodyMedium
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = result.name,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = "${result.country} (${result.country_code})",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun WeatherCard(
+private fun WeatherPreviewCard(
+    result: GeocodingResultItem,
     weather: WeatherEntity?,
     isFavorite: Boolean,
     onFavoriteClick: () -> Unit,
+    onDetailsClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = result.name,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Row {
+                    IconButton(onClick = onFavoriteClick) {
+                        Icon(
+                            if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = if (isFavorite) "Retirer des favoris" else "Ajouter aux favoris"
+                        )
+                    }
+                    IconButton(onClick = onDetailsClick) {
+                        Icon(Icons.Default.ArrowForward, "Voir les détails")
+                    }
+                }
+            }
+            
+            weather?.let {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "${it.temperature}°C",
+                    style = MaterialTheme.typography.headlineMedium
+                )
+                Text(
+                    text = it.condition,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    WeatherInfo(
+                        icon = Icons.Default.KeyboardArrowDown,
+                        label = "Min",
+                        value = "${it.minTemp}°C"
+                    )
+                    WeatherInfo(
+                        icon = Icons.Default.KeyboardArrowUp,
+                        label = "Max",
+                        value = "${it.maxTemp}°C"
+                    )
+                    WeatherInfo(
+                        icon = Icons.Default.Info,
+                        label = "Vent",
+                        value = "${it.windSpeed} km/h"
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FavoriteWeatherCard(
+    city: FavoriteCity,
+    weather: WeatherEntity?,
+    onRemoveClick: () -> Unit,
     onCardClick: () -> Unit
 ) {
     Card(
@@ -220,30 +339,28 @@ private fun WeatherCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = weather?.cityName ?: "Chargement...",
-                    style = MaterialTheme.typography.titleLarge
+                    text = city.name,
+                    style = MaterialTheme.typography.titleMedium
                 )
-                IconButton(onClick = onFavoriteClick) {
-                    Icon(
-                        if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = if (isFavorite) "Retirer des favoris" else "Ajouter aux favoris"
-                    )
+                IconButton(onClick = onRemoveClick) {
+                    Icon(Icons.Default.Delete, "Supprimer des favoris")
                 }
             }
-
+            
             weather?.let {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "${it.temperature}°C",
-                    style = MaterialTheme.typography.displayMedium
+                    style = MaterialTheme.typography.headlineMedium
                 )
                 Text(
                     text = it.condition,
-                    style = MaterialTheme.typography.bodyLarge
+                    style = MaterialTheme.typography.bodyMedium
                 )
-                Spacer(modifier = Modifier.height(8.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     WeatherInfo(

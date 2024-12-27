@@ -7,7 +7,6 @@ import com.example.myapplication.data.model.GeocodingResultItem
 import com.example.myapplication.data.model.WeatherEntity
 import com.example.myapplication.data.repository.WeatherRepository
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 

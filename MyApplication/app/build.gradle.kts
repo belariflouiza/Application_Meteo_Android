@@ -85,5 +85,8 @@ dependencies {
     implementation (libs.kotlinx.coroutines.core)
     implementation (libs.androidx.room.ktx.v252)
     implementation (libs.androidx.lifecycle.viewmodel.compose)
+    implementation ("com.patrykandpatrick.vico:compose:1.13.1")
+    implementation ("com.patrykandpatrick.vico:compose-m3:1.13.1")
+    implementation ("com.patrykandpatrick.vico:core:1.13.1")
 
 }

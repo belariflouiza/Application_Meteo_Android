@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.ui.text.style.TextAlign
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,9 +51,10 @@ fun HomeScreen(
     val weatherData by viewModel.weatherData.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
+    val successMessage by viewModel.successMessage.collectAsState()
+    val showSearchResults by viewModel.showSearchResults.collectAsState()
     
     var searchQuery by remember { mutableStateOf("") }
-    var showSearchResults by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
 
@@ -85,7 +87,7 @@ fun HomeScreen(
                 onValueChange = { 
                     searchQuery = it
                     if (it.length >= 2) {
-                        showSearchResults = true
+                        viewModel.setShowSearchResults(true)
                         viewModel.searchCities(it)
                     }
                 },
@@ -100,7 +102,7 @@ fun HomeScreen(
                     {
                         IconButton(onClick = { 
                             searchQuery = ""
-                            showSearchResults = false
+                            viewModel.setShowSearchResults(false)
                         }) {
                             Icon(Icons.Default.Clear, "Effacer")
                         }
@@ -203,6 +205,24 @@ fun HomeScreen(
                 }
             )
         }
+
+        successMessage?.let { message ->
+            LaunchedEffect(message) {
+                delay(2000) // Le message disparaît après 2 secondes
+                viewModel.clearSuccessMessage()
+            }
+
+            Snackbar(
+                modifier = Modifier.padding(16.dp),
+                action = {
+                    TextButton(onClick = { viewModel.clearSuccessMessage() }) {
+                        Text("OK")
+                    }
+                }
+            ) {
+                Text(message)
+            }
+        }
     }
 }
 
@@ -268,7 +288,12 @@ private fun WeatherPreviewCard(
                     style = MaterialTheme.typography.titleMedium
                 )
                 Row {
-                    IconButton(onClick = onFavoriteClick) {
+                    IconButton(
+                        onClick = {
+                            onFavoriteClick()
+                            // La navigation vers les favoris se fait automatiquement via le ViewModel
+                        }
+                    ) {
                         Icon(
                             if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = if (isFavorite) "Retirer des favoris" else "Ajouter aux favoris"

@@ -28,8 +28,18 @@ class WeatherViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
+    private val _successMessage = MutableStateFlow<String?>(null)
+    val successMessage = _successMessage.asStateFlow()
+
+    private val _showSearchResults = MutableStateFlow(false)
+    val showSearchResults = _showSearchResults.asStateFlow()
+
     init {
         loadFavorites()
+    }
+
+    fun setShowSearchResults(show: Boolean) {
+        _showSearchResults.value = show
     }
 
     fun searchCities(query: String) {
@@ -80,7 +90,9 @@ class WeatherViewModel(
         viewModelScope.launch {
             try {
                 repository.addFavoriteCity(city)
-                loadFavorites()
+                _successMessage.value = "Ville ajoutée aux favoris"
+                _showSearchResults.value = false  // Ferme les résultats de recherche
+                loadFavorites()  // Recharge la liste des favoris
             } catch (e: Exception) {
                 _error.value = e.message
             }
@@ -125,5 +137,9 @@ class WeatherViewModel(
 
     fun clearError() {
         _error.value = null
+    }
+
+    fun clearSuccessMessage() {
+        _successMessage.value = null
     }
 }

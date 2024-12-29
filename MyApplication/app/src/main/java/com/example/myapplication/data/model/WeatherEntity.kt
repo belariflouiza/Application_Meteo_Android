@@ -15,6 +15,7 @@ data class WeatherEntity(
     val condition: String,
     val minTemp: Double,
     val maxTemp: Double,
+    val timestamp: Long = System.currentTimeMillis(), // Ajout du timestamp
     val hourlyTemperatures: List<Double>,
     val hourlyTimes: List<String>
-) 
+)

@@ -18,7 +18,9 @@ class WeatherApplication : Application() {
             applicationContext,
             AppDatabase::class.java,
             "weather_database"
-        ).fallbackToDestructiveMigration().build()
+        )
+        .fallbackToDestructiveMigration()
+        .build()
     }
 
     private val okHttpClient by lazy {

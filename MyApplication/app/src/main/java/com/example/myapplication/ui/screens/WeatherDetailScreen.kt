@@ -27,6 +27,8 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.myapplication.data.model.WeatherEntity
@@ -34,6 +36,7 @@ import com.example.myapplication.ui.viewmodel.WeatherViewModel
 import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalConfiguration
 import android.content.res.Configuration
+import androidx.compose.foundation.background
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -46,7 +49,18 @@ fun WeatherDetailScreen(
     val weatherData by viewModel.weatherData.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
-    
+    val favorites by viewModel.favorites.collectAsState()
+    val selectedCity by viewModel.selectedCity.collectAsState()
+
+    val gradientBackground = Brush.verticalGradient(
+        colors = listOf(
+            Color(0xFF1A237E),  // Bleu très foncé
+            Color(0xFF3949AB),  // Bleu indigo
+            Color(0xFF42A5F5),  // Bleu clair
+            Color(0xFF90CAF9)   // Bleu très clair
+        )
+    )
+
     LaunchedEffect(cityId) {
         viewModel.loadWeatherDetails(cityId)
     }
@@ -59,13 +73,35 @@ fun WeatherDetailScreen(
                     IconButton(onClick = { navController.navigateUp() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Retour")
                     }
-                }
+                },
+                actions = {
+                    val isFavorite = favorites.any { it.cityId == cityId }
+                    IconButton(
+                        onClick = {
+                            selectedCity?.let { city ->
+                                viewModel.toggleFavorite(city)
+                            }
+                        }
+                    ) {
+                        Icon(
+                            if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = if (isFavorite) "Retirer des favoris" else "Ajouter aux favoris",
+                            tint = if (isFavorite) Color(0xFFE91E63) else Color.White
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = Color.White,
+                    navigationIconContentColor = Color.White
+                )
             )
         }
     ) { padding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .background(gradientBackground)
                 .padding(padding)
         ) {
             when {
@@ -150,7 +186,10 @@ fun CurrentWeatherCard(
     modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = Color.White.copy(alpha = 0.9f)
+        )
     ) {
         Column(
             modifier = Modifier
@@ -160,11 +199,17 @@ fun CurrentWeatherCard(
         ) {
             Text(
                 text = "${weather.temperature.toInt()}°C",
-                style = MaterialTheme.typography.displayLarge
+                style = MaterialTheme.typography.displayLarge.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.SansSerif
+                )
             )
             Text(
                 text = weather.condition,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Medium,
+                    fontFamily = FontFamily.SansSerif
+                ),
                 modifier = Modifier.padding(vertical = 8.dp)
             )
             Row(
@@ -206,7 +251,7 @@ fun HourlyForecastCard(
             isFakeBoldText = true
         }
     }
-    
+
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -228,7 +273,7 @@ fun HourlyForecastCard(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
-            
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -280,7 +325,7 @@ fun HourlyForecastCard(
                     }
                 }
             }
-            
+
             // Heures (axe X)
             Box(
                 modifier = Modifier
@@ -346,7 +391,7 @@ fun DailyForecastCard(
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val scrollState = rememberScrollState()
     val primaryColor = MaterialTheme.colorScheme.primary
-    
+
     Card(
         modifier = modifier
             .fillMaxWidth()

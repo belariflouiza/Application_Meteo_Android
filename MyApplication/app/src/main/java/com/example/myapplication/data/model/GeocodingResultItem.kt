@@ -5,6 +5,6 @@ data class GeocodingResultItem(
     val name: String,
     val latitude: Double,
     val longitude: Double,
-    val country: String = "",
-    val admin1: String = ""
+    val country: String? = null,
+    val admin1: String? = null
 )

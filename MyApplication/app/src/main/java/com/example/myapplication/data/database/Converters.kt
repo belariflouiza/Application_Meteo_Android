@@ -2,25 +2,25 @@ package com.example.myapplication.data.database
 
 import androidx.room.TypeConverter
 
-@androidx.room.TypeConverters
 class Converters {
     @TypeConverter
-    fun fromString(value: String): List<String> {
-        return value.split(",")
+    fun fromDoubleList(value: List<Double>): String {
+        return value.joinToString(",")
     }
-
     @TypeConverter
-    fun fromList(list: List<String>): String {
-        return list.joinToString(",")
-    }
-
-    @TypeConverter
-    fun fromDoubleString(value: String): List<Double> {
+    fun toDoubleList(value: String): List<Double> {
+        if (value.isEmpty()) return emptyList()
         return value.split(",").map { it.toDouble() }
     }
 
     @TypeConverter
-    fun fromDoubleList(list: List<Double>): String {
-        return list.joinToString(",")
+    fun fromStringList(value: List<String>): String {
+        return value.joinToString(",")
+    }
+
+    @TypeConverter
+    fun toStringList(value: String): List<String> {
+        if (value.isEmpty()) return emptyList()
+        return value.split(",")
     }
 } 

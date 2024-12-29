@@ -8,20 +8,17 @@ import com.example.myapplication.data.model.WeatherEntity
 import com.example.myapplication.data.model.GeocodingResultItem
 import com.example.myapplication.data.repository.WeatherRepository
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import com.google.android.gms.location.LocationServices
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import android.util.Log
-import kotlinx.coroutines.flow.StateFlow
-import com.example.myapplication.utils.LocationUtils
 
 class WeatherViewModel(
-    private val repository: WeatherRepository,
-    private val context: Context
+    private val context: Context,
+    private val repository: WeatherRepository
 ) : ViewModel() {
 
     private val _selectedCity = MutableStateFlow<GeocodingResultItem?>(null)
@@ -42,48 +39,24 @@ class WeatherViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
-    private val _successMessage = MutableStateFlow<String?>(null)
-    val successMessage: StateFlow<String?> = _successMessage
-
     private val _currentLocation = MutableStateFlow<GeocodingResultItem?>(null)
-    val currentLocation = _currentLocation.asStateFlow()
-
-    private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+    val currentLocation: StateFlow<GeocodingResultItem?> = _currentLocation
 
     init {
         loadFavorites()
     }
 
     fun searchCities(query: String) {
+        if (query.length < 2) return
+
         viewModelScope.launch {
             try {
                 _isLoading.value = true
+                _error.value = null
                 _searchResults.value = repository.searchCities(query)
             } catch (e: Exception) {
                 _error.value = "Erreur lors de la recherche: ${e.message}"
-            } finally {
-                _isLoading.value = false
-            }
-        }
-    }
-
-    fun getWeatherForCity(cityId: String, latitude: Double, longitude: Double) {
-        viewModelScope.launch {
-            try {
-                _isLoading.value = true
-                val weather = repository.getWeather(latitude, longitude)
-                _weatherData.value = _weatherData.value + (cityId to WeatherEntity(
-                    cityId = cityId,
-                    temperature = weather.current_weather.temperature,
-                    windSpeed = weather.current_weather.windspeed,
-                    condition = getWeatherCondition(weather.current_weather.weathercode),
-                    minTemp = weather.daily.temperature_2m_min.firstOrNull() ?: 0.0,
-                    maxTemp = weather.daily.temperature_2m_max.firstOrNull() ?: 0.0,
-                    hourlyTemperatures = weather.hourly.temperature_2m,
-                    hourlyTimes = weather.hourly.time.map { formatHourFromDateTime(it) }
-                ))
-            } catch (e: Exception) {
-                _error.value = "Erreur lors de la récupération de la météo: ${e.message}"
+                _searchResults.value = emptyList()
             } finally {
                 _isLoading.value = false
             }
@@ -92,77 +65,65 @@ class WeatherViewModel(
 
     fun getWeatherForCurrentLocation() {
         viewModelScope.launch {
-            _isLoading.value = true
             try {
-                val location = LocationUtils.getCurrentLocation(context)
-                if (location != null) {
-                    val currentLocation = GeocodingResultItem(
-                        id = "current_location",
-                        name = "Ma position actuelle",
-                        latitude = location.latitude,
-                        longitude = location.longitude,
-                        country = "",
-                        admin1 = ""
-                    )
-                    
-                    repository.getWeatherForCity(currentLocation.id, location.latitude, location.longitude)
-                        .onSuccess { weather ->
-                            val currentWeatherData = _weatherData.value.toMutableMap()
-                            currentWeatherData[currentLocation.id] = weather
-                            _weatherData.value = currentWeatherData
-                            _currentLocation.value = currentLocation
-                            _selectedCity.value = currentLocation
-                            _successMessage.value = "Position actuelle mise à jour"
+                _isLoading.value = true
+                _error.value = null
+
+                if (ActivityCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ) != PackageManager.PERMISSION_GRANTED) {
+                    _error.value = "Permission de localisation nécessaire"
+                    return@launch
+                }
+
+                val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                    if (location != null) {
+                        viewModelScope.launch {
+                            try {
+                                val currentLocation = GeocodingResultItem(
+                                    id = "current_location",
+                                    name = "Ma position",
+                                    latitude = location.latitude,
+                                    longitude = location.longitude,
+                                    country = "",
+                                    admin1 = ""
+                                )
+
+                                _currentLocation.value = currentLocation
+                                loadWeatherForCity(currentLocation.id, location.latitude, location.longitude)
+
+                                try {
+                                    val cities = repository.searchCities(
+                                        "${location.latitude},${location.longitude}"
+                                    )
+                                    if (cities.isNotEmpty()) {
+                                        val updatedLocation = currentLocation.copy(
+                                            name = cities.first().name,
+                                            country = cities.first().country,
+                                            admin1 = cities.first().admin1
+                                        )
+                                        _currentLocation.value = updatedLocation
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("WeatherViewModel", "Erreur lors de la récupération du nom de la ville", e)
+                                }
+                            } catch (e: Exception) {
+                                _error.value = "Erreur lors de la récupération de la météo: ${e.message}"
+                            }
                         }
-                        .onFailure { e ->
-                            _error.value = "Erreur lors de la récupération de la météo: ${e.message}"
-                        }
-                } else {
-                    _error.value = "Impossible d'obtenir votre position. Vérifiez que le GPS est activé."
+                    } else {
+                        _error.value = "Impossible d'obtenir la position actuelle"
+                    }
+                }.addOnFailureListener { e ->
+                    _error.value = "Erreur de localisation: ${e.message}"
                 }
             } catch (e: Exception) {
-                _error.value = "Erreur lors de la récupération de la météo: ${e.message}"
+                _error.value = "Erreur lors de la localisation: ${e.message}"
             } finally {
                 _isLoading.value = false
             }
-        }
-    }
-
-    private fun checkLocationPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-    }
-
-    fun clearError() {
-        _error.value = null
-    }
-
-    fun clearSuccessMessage() {
-        _successMessage.value = null
-    }
-
-    private fun formatHourFromDateTime(dateTime: String): String {
-        return try {
-            dateTime.split("T")[1].substring(0, 5)
-        } catch (e: Exception) {
-            "00:00"
-        }
-    }
-
-    private fun getWeatherCondition(code: Int): String {
-        return when (code) {
-            0 -> "Ciel dégagé"
-            1, 2, 3 -> "Partiellement nuageux"
-            45, 48 -> "Brouillard"
-            51, 53, 55, 56, 57, 61, 63, 65, 66, 67 -> "Pluie"
-            71, 73, 75, 77 -> "Neige"
-            80, 81, 82 -> "Averses"
-            85, 86 -> "Averses de neige"
-            95 -> "Orage"
-            96, 99 -> "Orage avec grêle"
-            else -> "Indéterminé"
         }
     }
 
@@ -170,8 +131,31 @@ class WeatherViewModel(
         viewModelScope.launch {
             try {
                 _favorites.value = repository.getFavoriteCities()
+                _favorites.value.forEach { favorite ->
+                    if (!_weatherData.value.containsKey(favorite.cityId)) {
+                        loadWeatherForCity(favorite.cityId, favorite.latitude, favorite.longitude)
+                    }
+                }
             } catch (e: Exception) {
                 _error.value = "Erreur lors du chargement des favoris: ${e.message}"
+            }
+        }
+    }
+
+    fun loadWeatherForCity(cityId: String, latitude: Double, longitude: Double) {
+        viewModelScope.launch {
+            try {
+                repository.getWeatherForCity(cityId, latitude, longitude).fold(
+                    onSuccess = { weather ->
+                        _weatherData.value = _weatherData.value + (cityId to weather)
+                        _error.value = null
+                    },
+                    onFailure = { e ->
+                        _error.value = "Erreur lors du chargement de la météo: ${e.message}"
+                    }
+                )
+            } catch (e: Exception) {
+                _error.value = "Erreur lors du chargement de la météo: ${e.message}"
             }
         }
     }
@@ -179,10 +163,9 @@ class WeatherViewModel(
     fun toggleFavorite(city: GeocodingResultItem) {
         viewModelScope.launch {
             try {
-                val isFavorite = favorites.value.any { it.cityId == city.id }
+                val isFavorite = _favorites.value.any { it.cityId == city.id }
                 if (isFavorite) {
                     repository.removeFavoriteCity(city.id)
-                    _successMessage.value = "Ville retirée des favoris"
                 } else {
                     repository.addFavoriteCity(
                         FavoriteCity(
@@ -192,9 +175,8 @@ class WeatherViewModel(
                             longitude = city.longitude
                         )
                     )
-                    _successMessage.value = "Ville ajoutée aux favoris"
                 }
-                loadFavorites() // Recharger la liste des favoris
+                loadFavorites()
             } catch (e: Exception) {
                 _error.value = "Erreur lors de la modification des favoris: ${e.message}"
             }
@@ -202,27 +184,42 @@ class WeatherViewModel(
     }
 
     fun selectCity(city: GeocodingResultItem) {
-        viewModelScope.launch {
-            try {
-                _isLoading.value = true
-                getWeatherForCity(city.id, city.latitude, city.longitude)
-                _selectedCity.value = city
-            } catch (e: Exception) {
-                _error.value = "Erreur lors de la sélection de la ville: ${e.message}"
-            } finally {
-                _isLoading.value = false
-            }
-        }
+        _selectedCity.value = city
+        loadWeatherForCity(city.id, city.latitude, city.longitude)
+    }
+
+    fun clearError() {
+        _error.value = null
     }
 
     fun loadWeatherDetails(cityId: String) {
         viewModelScope.launch {
             try {
                 _isLoading.value = true
-                val city = _selectedCity.value ?: return@launch
-                if (!_weatherData.value.containsKey(cityId)) {
-                    getWeatherForCity(cityId, city.latitude, city.longitude)
+                
+                // Chercher d'abord dans les favoris
+                val favoriteCity = _favorites.value.find { it.cityId == cityId }
+                if (favoriteCity != null) {
+                    loadWeatherForCity(cityId, favoriteCity.latitude, favoriteCity.longitude)
+                    return@launch
                 }
+
+                // Si ce n'est pas un favori, vérifier si c'est la position actuelle
+                val currentLoc = _currentLocation.value
+                if (currentLoc?.id == cityId) {
+                    loadWeatherForCity(cityId, currentLoc.latitude, currentLoc.longitude)
+                    return@launch
+                }
+
+                // Si on ne trouve pas la ville, on peut chercher dans les résultats de recherche
+                val searchResult = _searchResults.value.find { it.id == cityId }
+                if (searchResult != null) {
+                    loadWeatherForCity(cityId, searchResult.latitude, searchResult.longitude)
+                    return@launch
+                }
+
+                // Si on ne trouve pas la ville du tout
+                _error.value = "Ville non trouvée"
             } catch (e: Exception) {
                 _error.value = "Erreur lors du chargement des détails: ${e.message}"
             } finally {

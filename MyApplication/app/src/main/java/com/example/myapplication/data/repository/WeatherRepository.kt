@@ -77,29 +77,54 @@ class WeatherRepository(
     }
 
     suspend fun getWeatherForCity(cityId: String, latitude: Double, longitude: Double): Result<WeatherEntity> {
-        return try {
-            val weather = weatherApiService.getWeather(
-                latitude = latitude,
-                longitude = longitude
-            )
-            
-            val weatherEntity = WeatherEntity(
-                cityId = cityId,
-                temperature = weather.current_weather.temperature,
-                windSpeed = weather.current_weather.windspeed,
-                condition = getWeatherCondition(weather.current_weather.weathercode),
-                minTemp = weather.daily.temperature_2m_min.firstOrNull() ?: 0.0,
-                maxTemp = weather.daily.temperature_2m_max.firstOrNull() ?: 0.0,
-                hourlyTemperatures = weather.hourly.temperature_2m,
-                hourlyTimes = weather.hourly.time.map { formatHourFromDateTime(it) }
-            )
+        return withContext(Dispatchers.IO) {
+            try {
+                // Vérifier d'abord le cache
+                val cachedWeather = weatherDao.getWeatherForCity(cityId)
+                if (cachedWeather != null && !isCacheExpired(cachedWeather)) {
+                    return@withContext Result.success(cachedWeather)
+                }
 
-            // Sauvegarder en cache
-            weatherDao.insertWeather(weatherEntity)
-            
-            Result.success(weatherEntity)
-        } catch (e: Exception) {
-            Result.failure(Exception("Erreur lors de la récupération de la météo: ${e.message}"))
+                // Si pas de réseau, utiliser le cache même expiré
+                if (!NetworkUtils.isNetworkAvailable(context)) {
+                    return@withContext if (cachedWeather != null) {
+                        Result.success(cachedWeather)
+                    } else {
+                        Result.failure(Exception("Pas de données disponibles hors ligne"))
+                    }
+                }
+
+                // Si on a du réseau, faire la requête API
+                val weather = weatherApiService.getWeather(
+                    latitude = latitude,
+                    longitude = longitude
+                )
+
+                val weatherEntity = WeatherEntity(
+                    cityId = cityId,
+                    temperature = weather.current_weather.temperature,
+                    windSpeed = weather.current_weather.windspeed,
+                    condition = getWeatherCondition(weather.current_weather.weathercode),
+                    minTemp = weather.daily.temperature_2m_min.firstOrNull() ?: 0.0,
+                    maxTemp = weather.daily.temperature_2m_max.firstOrNull() ?: 0.0,
+                    timestamp = System.currentTimeMillis(), // Ajout du timestamp
+                    hourlyTemperatures = weather.hourly.temperature_2m,
+                    hourlyTimes = weather.hourly.time.map { formatHourFromDateTime(it) }
+                )
+
+                // Sauvegarder en cache
+                weatherDao.insertWeather(weatherEntity)
+
+                Result.success(weatherEntity)
+            } catch (e: Exception) {
+                // En cas d'erreur, essayer de retourner le cache
+                val cachedWeather = weatherDao.getWeatherForCity(cityId)
+                if (cachedWeather != null) {
+                    Result.success(cachedWeather)
+                } else {
+                    Result.failure(Exception("Erreur lors de la récupération de la météo: ${e.message}"))
+                }
+            }
         }
     }
 
@@ -125,5 +150,9 @@ class WeatherRepository(
             "00:00"
         }
     }
-}
 
+    private fun isCacheExpired(weatherEntity: WeatherEntity): Boolean {
+        val currentTime = System.currentTimeMillis()
+        return currentTime - weatherEntity.timestamp > CACHE_DURATION
+    }
+}

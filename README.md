@@ -37,11 +37,11 @@ WeatherApp est une application météo moderne développée en Kotlin avec Jetpa
 - Navigation Component
 
 ## 📱 Captures d'écran
-[![image](https://github.com/user-attachments/assets/eb72bff5-8096-4e87-8c6d-d6ba9abd0d49)]
-[![image](https://github.com/user-attachments/assets/33b454bd-fc36-4845-ad02-81a952472a52)]
-[![image](https://github.com/user-attachments/assets/c263cece-2e2f-457c-91e4-4b0596b3ad02)]
-[![image](https://github.com/user-attachments/assets/7f6c5809-94e3-4ad3-bc1d-6f666fceee41)
-]
+![image](https://github.com/user-attachments/assets/eb72bff5-8096-4e87-8c6d-d6ba9abd0d49)
+![image](https://github.com/user-attachments/assets/33b454bd-fc36-4845-ad02-81a952472a52)
+![image](https://github.com/user-attachments/assets/c263cece-2e2f-457c-91e4-4b0596b3ad02)
+![image](https://github.com/user-attachments/assets/7f6c5809-94e3-4ad3-bc1d-6f666fceee41)
+
 
 ## 🏗️ Architecture
 L'application suit l'architecture MVVM (Model-View-ViewModel)

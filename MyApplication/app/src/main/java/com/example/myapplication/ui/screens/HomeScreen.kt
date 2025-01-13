@@ -51,7 +51,10 @@ import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import android.content.res.Configuration
+import androidx.compose.foundation.Image
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
+import com.example.myapplication.data.model.getWeatherIcon
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -101,7 +104,7 @@ fun HomeScreen(
                     style = MaterialTheme.typography.titleLarge,
                     color = Color.White
                 )
-                Divider(color = Color.White.copy(alpha = 0.2f))
+                HorizontalDivider(color = Color.White.copy(alpha = 0.2f))
                 LazyColumn {
                     items(favorites) { favorite ->
                         Card(
@@ -131,6 +134,12 @@ fun HomeScreen(
                                                 style = MaterialTheme.typography.bodySmall
                                             )
                                         }
+                                        Image(
+                                            painter = painterResource(id = weather.getWeatherIcon()),
+                                            contentDescription = weather.condition,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+
                                     }
                                 },
                                 trailingContent = {
@@ -308,6 +317,11 @@ fun HomeScreen(
                                             Text("Min: ${weather.minTemp.toInt()}°C")
                                             Text("Max: ${weather.maxTemp.toInt()}°C")
                                         }
+                                        Image(
+                                            painter = painterResource(id = weather.getWeatherIcon()),
+                                            contentDescription = weather.condition,
+                                            modifier = Modifier.size(24.dp)
+                                        )
                                     }
                                 }
                             }
@@ -386,6 +400,11 @@ fun HomeScreen(
                                                                 style = MaterialTheme.typography.bodySmall
                                                             )
                                                         }
+                                                        Image(
+                                                            painter = painterResource(id = weather.getWeatherIcon()),
+                                                            contentDescription = weather.condition,
+                                                            modifier = Modifier.size(24.dp)
+                                                        )
                                                     }
                                                 },
                                                 trailingContent = {
@@ -601,6 +620,11 @@ fun HomeScreen(
                                         Text("Min: ${weather.minTemp.toInt()}°C")
                                         Text("Max: ${weather.maxTemp.toInt()}°C")
                                     }
+                                    Image(
+                                        painter = painterResource(id = weather.getWeatherIcon()),
+                                        contentDescription = weather.condition,
+                                        modifier = Modifier.size(48.dp)
+                                    )
                                 }
                             }
                         }
@@ -673,6 +697,11 @@ fun HomeScreen(
                                                             style = MaterialTheme.typography.bodySmall
                                                         )
                                                     }
+                                                    Image(
+                                                        painter = painterResource(id = weather.getWeatherIcon()),
+                                                        contentDescription = weather.condition,
+                                                        modifier = Modifier.size(24.dp)
+                                                    )
                                                 }
                                             },
                                             trailingContent = {

@@ -36,8 +36,13 @@ import com.example.myapplication.ui.viewmodel.WeatherViewModel
 import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalConfiguration
 import android.content.res.Configuration
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-
+import androidx.compose.ui.res.painterResource
+import com.example.myapplication.data.model.getWeatherIcon
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.sp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -197,6 +202,11 @@ fun CurrentWeatherCard(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Image(
+                painter = painterResource(id = weather.getWeatherIcon()),
+                contentDescription = weather.condition,
+                modifier = Modifier.size(64.dp)
+            )
             Text(
                 text = "${weather.temperature.toInt()}°C",
                 style = MaterialTheme.typography.displayLarge.copy(
@@ -242,26 +252,15 @@ fun HourlyForecastCard(
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val scrollState = rememberScrollState()
     val primaryColor = MaterialTheme.colorScheme.primary
-    val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
-    val textPaint = remember {
-        android.graphics.Paint().apply {
-            color = textColor
-            textSize = 28f
-            textAlign = android.graphics.Paint.Align.CENTER
-            isFakeBoldText = true
-        }
-    }
+
+    // État pour le tooltip
+    var selectedPoint by remember { mutableStateOf<Pair<Float, Float>?>(null) }
+    var selectedTemp by remember { mutableStateOf<Double?>(null) }
+    var selectedTime by remember { mutableStateOf<String?>(null) }
 
     Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(
-                if (isLandscape) {
-                    Modifier.height(300.dp)
-                } else {
-                    Modifier.height(250.dp)
-                }
-            )
+        modifier = modifier.fillMaxWidth()
+            .then(if (isLandscape) Modifier.height(300.dp) else Modifier.height(250.dp))
     ) {
         Column(
             modifier = Modifier
@@ -284,6 +283,35 @@ fun HourlyForecastCard(
                     modifier = Modifier
                         .width(1000.dp)
                         .fillMaxHeight()
+                        .pointerInput(Unit) {
+                            detectTapGestures { offset ->
+                                val temperatures = weather.hourlyTemperatures.take(24)
+                                val maxTemp = temperatures.maxOrNull() ?: 0.0
+                                val minTemp = temperatures.minOrNull() ?: 0.0
+                                val range = (maxTemp - minTemp).coerceAtLeast(1.0)
+                                val width = size.width
+                                val height = size.height
+
+                                val points = temperatures.mapIndexed { index, temp ->
+                                    val x = (width * index / 23).toFloat()
+                                    val y = (height - (height * (temp - minTemp) / range)).toFloat()
+                                    Triple(x, y, temp)
+                                }
+
+                                val closest = points.minByOrNull { point ->
+                                    val dx = point.first - offset.x
+                                    val dy = point.second - offset.y
+                                    dx * dx + dy * dy
+                                }
+
+                                if (closest != null) {
+                                    selectedPoint = Pair(closest.first, closest.second)
+                                    selectedTemp = closest.third
+                                    selectedTime = weather.hourlyTimes[points.indexOf(closest)]
+
+                                }
+                            }
+                        }
                 ) {
                     val temperatures = weather.hourlyTemperatures.take(24)
                     val maxTemp = temperatures.maxOrNull() ?: 0.0
@@ -291,42 +319,91 @@ fun HourlyForecastCard(
                     val range = (maxTemp - minTemp).coerceAtLeast(1.0)
                     val width = size.width
                     val height = size.height
+
+                    // Dessiner les lignes de grille horizontales
+                    (0..4).forEach { i ->
+                        val y = height * i / 4
+                        drawLine(
+                            color = Color.Gray.copy(alpha = 0.3f),
+                            start = Offset(0f, y),
+                            end = Offset(width, y),
+                            strokeWidth = 1.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))
+                        )
+                        // Afficher les températures sur l'axe Y
+                        val temp = minTemp + (range * (4 - i) / 4)
+                        drawContext.canvas.nativeCanvas.drawText(
+                            "${temp.roundToInt()}°C",
+                            10f,
+                            y + 20f,
+                            android.graphics.Paint().apply {
+                                color = Color.Gray.toArgb()
+                                textSize = 12.sp.toPx()
+                                textAlign = android.graphics.Paint.Align.LEFT
+                            }
+                        )
+                    }
+
+                    // Dessiner la courbe
                     val points = temperatures.mapIndexed { index, temp ->
                         val x = width * index / 23
                         val y = height - (height * (temp - minTemp) / range).toFloat()
                         Offset(x, y)
                     }
 
-                    // Dessiner les segments de ligne entre chaque point
-                    for (i in 0 until points.size - 1) {
-                        drawLine(
-                            color = primaryColor,
-                            start = points[i],
-                            end = points[i + 1],
-                            strokeWidth = 2.dp.toPx()
-                        )
+                    // Dessiner la ligne du graphe
+                    val path = Path().apply {
+                        points.forEachIndexed { index, point ->
+                            if (index == 0) moveTo(point.x, point.y)
+                            else lineTo(point.x, point.y)
+                        }
                     }
+                    drawPath(
+                        path = path,
+                        color = primaryColor,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = 2.dp.toPx()
+                        )
+                    )
 
-                    // Dessiner les points et les températures
+                    // Dessiner les points
                     points.forEachIndexed { index, point ->
                         drawCircle(
                             color = primaryColor,
                             radius = 4.dp.toPx(),
                             center = point
                         )
+                    }
 
-                        // Température
-                        drawContext.canvas.nativeCanvas.drawText(
-                            "${temperatures[index].toInt()}°",
-                            point.x,
-                            point.y - 15,
-                            textPaint
-                        )
+                    // Afficher le tooltip si un point est sélectionné
+                    selectedPoint?.let { (x, y) ->
+                        selectedTemp?.let { temp ->
+                            selectedTime?.let { time ->
+                                // Dessiner le fond du tooltip
+                                drawRoundRect(
+                                    color = Color.White,
+                                    topLeft = Offset(x - 50f, y - 60f),
+                                    size = androidx.compose.ui.geometry.Size(100f, 40f),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f)
+                                )
+                                // Dessiner le texte du tooltip
+                                drawContext.canvas.nativeCanvas.drawText(
+                                    "$time: ${temp.roundToInt()}°C",
+                                    x,
+                                    y - 30f,
+                                    android.graphics.Paint().apply {
+                                        color = Color.Black.toArgb()
+                                        textSize = 14.sp.toPx()
+                                        textAlign = android.graphics.Paint.Align.CENTER
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            // Heures (axe X)
+            // Axe X (heures)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -395,47 +472,66 @@ fun DailyForecastCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .then(
-                if (isLandscape) {
-                    Modifier.fillMaxHeight()
-                } else {
-                    Modifier
-                }
-            )
+            .wrapContentHeight() // Changé de fillMaxHeight à wrapContentHeight
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
                 .padding(16.dp)
+                .wrapContentHeight() // Ajouté pour s'adapter au contenu
         ) {
             Text(
                 text = "Prévisions sur 7 jours",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
-            // Ici nous utiliserons les données daily de l'API
-            // Pour l'instant, affichons des données simulées
+
             val days = listOf("Aujourd'hui", "Demain", "J+2", "J+3", "J+4", "J+5", "J+6")
             days.forEachIndexed { index, day ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .padding(vertical = 8.dp), // Augmenté le padding vertical
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically // Ajouté pour aligner verticalement
                 ) {
-                    Text(text = day)
-                    Row {
-                        Text(
-                            text = "${(weather.minTemp - index).toInt()}°",
-                            color = MaterialTheme.colorScheme.primary
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Image(
+                            painter = painterResource(id = weather.getWeatherIcon()),
+                            contentDescription = weather.condition,
+                            modifier = Modifier.size(24.dp)
                         )
-                        Text(text = " / ")
                         Text(
-                            text = "${(weather.maxTemp + index).toInt()}°",
-                            color = MaterialTheme.colorScheme.error
+                            text = day,
+                            style = MaterialTheme.typography.bodyMedium
                         )
                     }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "${(weather.minTemp - index).toInt()}°",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(text = "/")
+                        Text(
+                            text = "${(weather.maxTemp + index).toInt()}°",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+
+                // Ajouter un séparateur sauf pour le dernier élément
+                if (index < days.size - 1) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                    )
                 }
             }
         }
